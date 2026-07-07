@@ -99,7 +99,16 @@ func (s *Store) migrate() error {
 	if err := s.ensureColumn("admin_users", "initialized", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
-	return s.ensureColumn("audit_logs", "client_key_label", "TEXT")
+	if err := s.ensureColumn("audit_logs", "client_key_label", "TEXT"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("routes", "last_test_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("routes", "last_test_ok", "INTEGER"); err != nil {
+		return err
+	}
+	return s.ensureColumn("routes", "last_test_error", "TEXT")
 }
 
 // ensureColumn 给已存在的旧库补列(SQLite 的 ALTER TABLE 不支持 IF NOT EXISTS)。
@@ -221,12 +230,42 @@ type RouteRecord struct {
 	ClearListenPassword bool   `json:"clear_listen_password,omitempty"` // 传 true 表示移除密码登录,只保留公钥
 	HasListenPassword   bool   `json:"has_listen_password"`             // 只读,告知前端当前是否已设置密码
 
+	// 只读,最近一次"测试 SSH 连接"的结果。
+	LastTestAt    *time.Time `json:"last_test_at"`
+	LastTestOK    *bool      `json:"last_test_ok"`
+	LastTestError string     `json:"last_test_error,omitempty"`
+
 	listenPasswordHash string // 内部字段,不参与 JSON 序列化,供认证时比对
 }
 
+const routeSelectColumns = `route_user, target_host, target_port, target_user, auth_type,
+	auth_password, auth_private_key, auth_private_key_passphrase, listen_password_hash,
+	last_test_at, last_test_ok, last_test_error`
+
+func scanRoute(scan func(dest ...any) error) (RouteRecord, error) {
+	var r RouteRecord
+	var pw, pk, pp, lph, testErr sql.NullString
+	var testAt sql.NullTime
+	var testOK sql.NullInt64
+	if err := scan(&r.RouteUser, &r.TargetHost, &r.TargetPort, &r.TargetUser, &r.AuthType, &pw, &pk, &pp, &lph, &testAt, &testOK, &testErr); err != nil {
+		return r, err
+	}
+	r.AuthPassword, r.AuthPrivateKey, r.AuthPrivateKeyPassphrase = pw.String, pk.String, pp.String
+	r.listenPasswordHash = lph.String
+	r.HasListenPassword = lph.Valid && lph.String != ""
+	if testAt.Valid {
+		r.LastTestAt = &testAt.Time
+	}
+	if testOK.Valid {
+		ok := testOK.Int64 != 0
+		r.LastTestOK = &ok
+	}
+	r.LastTestError = testErr.String
+	return r, nil
+}
+
 func (s *Store) ListRoutes() ([]RouteRecord, error) {
-	rows, err := s.db.Query(`SELECT route_user, target_host, target_port, target_user, auth_type,
-		auth_password, auth_private_key, auth_private_key_passphrase, listen_password_hash FROM routes ORDER BY route_user`)
+	rows, err := s.db.Query(`SELECT ` + routeSelectColumns + ` FROM routes ORDER BY route_user`)
 	if err != nil {
 		return nil, err
 	}
@@ -234,14 +273,10 @@ func (s *Store) ListRoutes() ([]RouteRecord, error) {
 
 	out := []RouteRecord{}
 	for rows.Next() {
-		var r RouteRecord
-		var pw, pk, pp, lph sql.NullString
-		if err := rows.Scan(&r.RouteUser, &r.TargetHost, &r.TargetPort, &r.TargetUser, &r.AuthType, &pw, &pk, &pp, &lph); err != nil {
+		r, err := scanRoute(rows.Scan)
+		if err != nil {
 			return nil, err
 		}
-		r.AuthPassword, r.AuthPrivateKey, r.AuthPrivateKeyPassphrase = pw.String, pk.String, pp.String
-		r.listenPasswordHash = lph.String
-		r.HasListenPassword = lph.Valid && lph.String != ""
 		out = append(out, r)
 	}
 	rows.Close()
@@ -257,17 +292,11 @@ func (s *Store) ListRoutes() ([]RouteRecord, error) {
 }
 
 func (s *Store) GetRoute(routeUser string) (*RouteRecord, error) {
-	var r RouteRecord
-	var pw, pk, pp, lph sql.NullString
-	err := s.db.QueryRow(`SELECT route_user, target_host, target_port, target_user, auth_type,
-		auth_password, auth_private_key, auth_private_key_passphrase, listen_password_hash FROM routes WHERE route_user = ?`, routeUser).
-		Scan(&r.RouteUser, &r.TargetHost, &r.TargetPort, &r.TargetUser, &r.AuthType, &pw, &pk, &pp, &lph)
+	row := s.db.QueryRow(`SELECT `+routeSelectColumns+` FROM routes WHERE route_user = ?`, routeUser)
+	r, err := scanRoute(row.Scan)
 	if err != nil {
 		return nil, err
 	}
-	r.AuthPassword, r.AuthPrivateKey, r.AuthPrivateKeyPassphrase = pw.String, pk.String, pp.String
-	r.listenPasswordHash = lph.String
-	r.HasListenPassword = lph.Valid && lph.String != ""
 	labels, err := s.listClientKeyLabelsForRoute(routeUser)
 	if err != nil {
 		return nil, err
@@ -344,6 +373,13 @@ func (s *Store) UpsertRoute(r RouteRecord) error {
 
 func (s *Store) DeleteRoute(routeUser string) error {
 	_, err := s.db.Exec(`DELETE FROM routes WHERE route_user = ?`, routeUser)
+	return err
+}
+
+// UpdateRouteTestResult 记录一次"测试 SSH 连接"的结果,供 Web 后台展示。
+func (s *Store) UpdateRouteTestResult(routeUser string, ok bool, testErr string) error {
+	_, err := s.db.Exec(`UPDATE routes SET last_test_at = CURRENT_TIMESTAMP, last_test_ok = ?, last_test_error = ? WHERE route_user = ?`,
+		boolToInt(ok), testErr, routeUser)
 	return err
 }
 

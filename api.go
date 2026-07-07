@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -39,6 +41,8 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("GET /api/routes", a.auth(a.handleListRoutes))
 	mux.HandleFunc("POST /api/routes", a.auth(a.handleUpsertRoute))
 	mux.HandleFunc("DELETE /api/routes/{user}", a.auth(a.handleDeleteRoute))
+	mux.HandleFunc("POST /api/routes/test-all", a.auth(a.handleTestAllRoutes))
+	mux.HandleFunc("POST /api/routes/{user}/test", a.auth(a.handleTestRoute))
 
 	mux.HandleFunc("GET /api/client-keys", a.auth(a.handleListClientKeys))
 	mux.HandleFunc("POST /api/client-keys", a.auth(a.handleCreateClientKey))
@@ -230,6 +234,67 @@ func (a *API) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// runRouteTest 连一次目标机器,把结果(成功/失败 + 错误信息)写回数据库,返回更新后的路由(不含密码/私钥)。
+func (a *API) runRouteTest(routeUser string) (*RouteRecord, error) {
+	route, err := a.store.GetRoute(routeUser)
+	if err != nil {
+		return nil, fmt.Errorf("路由不存在")
+	}
+	testErr := TestRoute(*route)
+	msg := ""
+	if testErr != nil {
+		msg = testErr.Error()
+	}
+	if err := a.store.UpdateRouteTestResult(routeUser, testErr == nil, msg); err != nil {
+		return nil, err
+	}
+	updated, err := a.store.GetRoute(routeUser)
+	if err != nil {
+		return nil, err
+	}
+	updated.AuthPassword, updated.AuthPrivateKey, updated.AuthPrivateKeyPassphrase = "", "", ""
+	return updated, nil
+}
+
+func (a *API) handleTestRoute(w http.ResponseWriter, r *http.Request) {
+	updated, err := a.runRouteTest(r.PathValue("user"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, updated)
+}
+
+func (a *API) handleTestAllRoutes(w http.ResponseWriter, r *http.Request) {
+	routes, err := a.store.ListRoutes()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var wg sync.WaitGroup
+	for _, route := range routes {
+		wg.Add(1)
+		go func(routeUser string) {
+			defer wg.Done()
+			if _, err := a.runRouteTest(routeUser); err != nil {
+				log.Printf("测试路由 %q 失败: %v", routeUser, err)
+			}
+		}(route.RouteUser)
+	}
+	wg.Wait()
+
+	updated, err := a.store.ListRoutes()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for i := range updated {
+		updated[i].AuthPassword, updated[i].AuthPrivateKey, updated[i].AuthPrivateKeyPassphrase = "", "", ""
+	}
+	writeJSON(w, updated)
 }
 
 func (a *API) handleListClientKeys(w http.ResponseWriter, r *http.Request) {

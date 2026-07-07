@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -127,6 +128,14 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 }
 
 func dialUpstream(route RouteRecord) (*ssh.Client, error) {
+	return dialUpstreamTimeout(route, 15*time.Second)
+}
+
+// testUpstreamTimeout 用于"测试 SSH 连接"功能:比正常业务连接给一个更短的超时,
+// 避免某台机器不可达时,测试请求(尤其是"测试全部")卡太久。
+const testUpstreamTimeout = 8 * time.Second
+
+func dialUpstreamTimeout(route RouteRecord, timeout time.Duration) (*ssh.Client, error) {
 	var authMethods []ssh.AuthMethod
 	switch route.AuthType {
 	case "password":
@@ -145,10 +154,21 @@ func dialUpstream(route RouteRecord) (*ssh.Client, error) {
 		User:            route.TargetUser,
 		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // 内网环境使用;需要更严格校验时换成 ssh.FixedHostKey
+		Timeout:         timeout,
 	}
 
 	addr := fmt.Sprintf("%s:%d", route.TargetHost, route.TargetPort)
 	return ssh.Dial("tcp", addr, clientCfg)
+}
+
+// TestRoute 尝试连接一次目标机器验证账号密码/私钥是否配置正确,连上就立刻断开,
+// 不做任何业务操作,供 Web 后台的"测试 SSH 连接"功能使用。
+func TestRoute(route RouteRecord) error {
+	client, err := dialUpstreamTimeout(route, testUpstreamTimeout)
+	if err != nil {
+		return err
+	}
+	return client.Close()
 }
 
 // forwardChannel 把下游(Claude 侧)发起的一个 channel 对应地在上游(真实目标机器)

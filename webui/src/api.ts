@@ -15,6 +15,10 @@ export interface RouteRecord {
   listen_password?: string;
   clear_listen_password?: boolean;
   has_listen_password: boolean;
+
+  last_test_at: string | null;
+  last_test_ok: boolean | null;
+  last_test_error?: string;
 }
 
 export interface ClientKey {
@@ -95,6 +99,9 @@ export const api = {
     request<{ ok: boolean }>(`/api/routes/${encodeURIComponent(routeUser)}`, {
       method: "DELETE",
     }),
+  testRoute: (routeUser: string) =>
+    request<RouteRecord>(`/api/routes/${encodeURIComponent(routeUser)}/test`, { method: "POST" }),
+  testAllRoutes: () => request<RouteRecord[]>("/api/routes/test-all", { method: "POST" }),
 
   listClientKeys: () => request<ClientKey[]>("/api/client-keys"),
   createClientKey: (key: Omit<ClientKey, "id">) =>

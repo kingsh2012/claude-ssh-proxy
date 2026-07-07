@@ -44,14 +44,14 @@ export function SettingsPage() {
         <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">
           修改后 proxy 会立刻重新监听新地址,已有连接不受影响,断线重连的客户端走新地址。
         </p>
-        <div className="flex gap-2">
+        <div className="space-y-2">
           <input className="input" value={listenAddr} onChange={(e) => setListenAddr(e.target.value)} placeholder=":2222" />
           <button onClick={saveListenAddr} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
             保存
           </button>
+          {saved && <p className="text-sm text-emerald-600 dark:text-emerald-400">已生效</p>}
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         </div>
-        {saved && <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">已生效</p>}
-        {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
       </section>
 
       <section>

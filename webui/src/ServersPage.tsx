@@ -183,7 +183,7 @@ export function ServersPage() {
       </div>
 
       <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        每个代理登录名对应一台真实机器,连接目标机器用的服务器凭据、能登录它的客户端凭据都在这里绑定——两边的绑定关系在"服务器凭据""客户端凭据"页面也能反过来编辑。
+        每个代理登录名对应一台真实机器,可以在这里绑定服务器凭据和客户端凭据。
       </p>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">

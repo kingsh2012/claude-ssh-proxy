@@ -106,7 +106,7 @@ export function ClientCredentialsPage() {
       </div>
 
       <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        每份凭据代表一个客户端身份(比如某个 Claude Agent),认证方式是公钥或密码,可以关联多台服务器——关联了哪些,这份凭据就能登录哪些。绑定关系在这里勾选,也可以去"服务器"页面编辑某台服务器时反过来选。
+        每份凭据代表一个客户端身份,可以绑定多台服务器。
       </p>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">

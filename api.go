@@ -202,37 +202,19 @@ func (a *API) handleUpsertRoute(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &route) {
 		return
 	}
-	if route.RouteUser == "" || route.TargetHost == "" || route.TargetUser == "" {
-		writeError(w, http.StatusBadRequest, "route_user / target_host / target_user 不能为空")
+	if route.RouteUser == "" || route.TargetHost == "" {
+		writeError(w, http.StatusBadRequest, "route_user / target_host 不能为空")
 		return
 	}
 	if route.TargetPort == 0 {
 		route.TargetPort = 22
 	}
 
+	// 服务器的认证信息完全来自"服务器凭据",这里只要校验(如果指定了)凭据确实存在;
+	// 留空表示这条服务器暂时没有可用的认证信息,允许保存,之后再补一个凭据即可。
 	if route.ServerCredentialID != nil {
-		// 用共享的"服务器凭据",这条路由自己不用填密码/私钥,只要凭据存在就行。
 		if _, err := a.store.GetServerCredential(*route.ServerCredentialID); err != nil {
 			writeError(w, http.StatusBadRequest, "指定的服务器凭据不存在")
-			return
-		}
-	} else {
-		switch route.AuthType {
-		case "password":
-			if route.AuthPassword == "" {
-				if existing, err := a.store.GetRoute(route.RouteUser); err == nil {
-					route.AuthPassword = existing.AuthPassword // 前端没传密码(说明没改),沿用旧值
-				}
-			}
-		case "private_key":
-			if route.AuthPrivateKey == "" {
-				if existing, err := a.store.GetRoute(route.RouteUser); err == nil {
-					route.AuthPrivateKey = existing.AuthPrivateKey
-					route.AuthPrivateKeyPassphrase = existing.AuthPrivateKeyPassphrase
-				}
-			}
-		default:
-			writeError(w, http.StatusBadRequest, "auth_type 必须是 password 或 private_key")
 			return
 		}
 	}
@@ -371,8 +353,8 @@ func (a *API) handleCreateServerCredential(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if body.Label == "" {
-		writeError(w, http.StatusBadRequest, "label 不能为空")
+	if body.Label == "" || body.TargetUser == "" {
+		writeError(w, http.StatusBadRequest, "label / target_user 不能为空")
 		return
 	}
 	if err := validateServerCredentialAuth(&body, nil); err != nil {
@@ -401,8 +383,8 @@ func (a *API) handleUpdateServerCredential(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if body.Label == "" {
-		writeError(w, http.StatusBadRequest, "label 不能为空")
+	if body.Label == "" || body.TargetUser == "" {
+		writeError(w, http.StatusBadRequest, "label / target_user 不能为空")
 		return
 	}
 	existing, err := a.store.GetServerCredential(id)

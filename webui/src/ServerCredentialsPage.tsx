@@ -4,6 +4,7 @@ import { ChipList } from "./ChipList";
 
 const emptyCredential: Omit<ServerCredential, "id"> = {
   label: "",
+  target_user: "root",
   auth_type: "password",
   auth_password: "",
   auth_private_key: "",
@@ -107,7 +108,9 @@ export function ServerCredentialsPage() {
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
             <tr>
+              <th className="px-4 py-2">ID</th>
               <th className="px-4 py-2">名称</th>
+              <th className="px-4 py-2">目标用户</th>
               <th className="px-4 py-2">认证方式</th>
               <th className="px-4 py-2">被哪些服务器使用</th>
               <th className="px-4 py-2"></th>
@@ -116,7 +119,9 @@ export function ServerCredentialsPage() {
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {creds.map((c) => (
               <tr key={c.id} className="text-slate-800 dark:text-slate-200">
+                <td className="px-4 py-2 font-mono text-xs text-slate-500">{c.id}</td>
                 <td className="px-4 py-2">{c.label}</td>
+                <td className="px-4 py-2 font-mono">{c.target_user}</td>
                 <td className="px-4 py-2">{c.auth_type === "password" ? "密码" : "私钥"}</td>
                 <td className="px-4 py-2">
                   <ChipList items={c.route_users} emptyText="暂无服务器使用" />
@@ -133,7 +138,7 @@ export function ServerCredentialsPage() {
             ))}
             {creds.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
                   还没有添加任何服务器凭据
                 </td>
               </tr>
@@ -158,6 +163,15 @@ export function ServerCredentialsPage() {
                 value={editing.label}
                 onChange={(e) => setEditing({ ...editing, label: e.target.value })}
                 autoFocus
+              />
+            </div>
+
+            <div className="mb-3">
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">目标机器用户名(比如 root)</label>
+              <input
+                className="input"
+                value={editing.target_user}
+                onChange={(e) => setEditing({ ...editing, target_user: e.target.value })}
               />
             </div>
 

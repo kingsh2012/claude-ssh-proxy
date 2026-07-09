@@ -113,6 +113,7 @@ export function ClientCredentialsPage() {
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
             <tr>
+              <th className="px-4 py-2">ID</th>
               <th className="px-4 py-2">名称</th>
               <th className="px-4 py-2">认证方式</th>
               <th className="px-4 py-2">关联的服务器</th>
@@ -122,6 +123,7 @@ export function ClientCredentialsPage() {
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {creds.map((c) => (
               <tr key={c.id} className="text-slate-800 dark:text-slate-200">
+                <td className="px-4 py-2 font-mono text-xs text-slate-500">{c.id}</td>
                 <td className="px-4 py-2">{c.label}</td>
                 <td className="px-4 py-2">
                   {c.auth_type === "public_key" ? (
@@ -150,7 +152,7 @@ export function ClientCredentialsPage() {
             ))}
             {creds.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
                   还没有添加任何客户端凭据
                 </td>
               </tr>

@@ -50,11 +50,6 @@ func (s *Store) migrate() error {
 			route_user TEXT PRIMARY KEY,
 			target_host TEXT NOT NULL,
 			target_port INTEGER NOT NULL DEFAULT 22,
-			target_user TEXT NOT NULL,
-			auth_type TEXT NOT NULL,
-			auth_password TEXT,
-			auth_private_key TEXT,
-			auth_private_key_passphrase TEXT,
 			enabled INTEGER NOT NULL DEFAULT 1,
 			server_credential_id INTEGER,
 			last_test_at DATETIME,
@@ -66,6 +61,7 @@ func (s *Store) migrate() error {
 		`CREATE TABLE IF NOT EXISTS server_credentials (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			label TEXT NOT NULL,
+			target_user TEXT NOT NULL,
 			auth_type TEXT NOT NULL,
 			auth_password TEXT,
 			auth_private_key TEXT,
@@ -184,11 +180,14 @@ func (s *Store) SetAdminPassword(username, password string) error {
 // ---------- routes ----------
 
 type RouteRecord struct {
-	RouteUser                string `json:"route_user"`
-	TargetHost               string `json:"target_host"`
-	TargetPort               int    `json:"target_port"`
-	TargetUser               string `json:"target_user"`
-	AuthType                 string `json:"auth_type"` // password | private_key
+	RouteUser  string `json:"route_user"`
+	TargetHost string `json:"target_host"`
+	TargetPort int    `json:"target_port"`
+
+	// 下面这些认证相关字段都是只读的,完全来自关联的"服务器凭据"(见 ServerCredentialID),
+	// 不能通过 UpsertRoute 直接设置;路由本身不再存密码/私钥/目标用户名。
+	TargetUser               string `json:"target_user,omitempty"`
+	AuthType                 string `json:"auth_type,omitempty"`
 	AuthPassword             string `json:"auth_password,omitempty"`
 	AuthPrivateKey           string `json:"auth_private_key,omitempty"`
 	AuthPrivateKeyPassphrase string `json:"auth_private_key_passphrase,omitempty"`
@@ -204,28 +203,25 @@ type RouteRecord struct {
 	LastTestOK    *bool      `json:"last_test_ok"`
 	LastTestError string     `json:"last_test_error,omitempty"`
 
-	// 连目标机器可以用这台服务器自己的密码/私钥(上面几个 Auth* 字段),
-	// 也可以指定一个共享的"认证凭据"(server_credentials 表),多台服务器共用同一份密码/私钥,
-	// 改一处全部生效。设置了 ServerCredentialID 后,Auth* 字段会在读取时被凭据里的值覆盖。
+	// 连目标机器必须指定一个"服务器凭据"(server_credentials 表,包含目标用户名+密码/私钥),
+	// 多台服务器可以共用同一份、改一处全部生效。留空表示这条路由暂时没有可用的认证信息。
 	ServerCredentialID    *int64 `json:"server_credential_id"`
 	ServerCredentialLabel string `json:"server_credential_label,omitempty"` // 只读
 }
 
-const routeSelectColumns = `route_user, target_host, target_port, target_user, auth_type,
-	auth_password, auth_private_key, auth_private_key_passphrase, enabled,
+const routeSelectColumns = `route_user, target_host, target_port, enabled,
 	last_test_at, last_test_ok, last_test_error, server_credential_id`
 
 func scanRoute(scan func(dest ...any) error) (RouteRecord, error) {
 	var r RouteRecord
-	var pw, pk, pp, testErr sql.NullString
+	var testErr sql.NullString
 	var enabled int
 	var testAt sql.NullTime
 	var testOK sql.NullInt64
 	var credID sql.NullInt64
-	if err := scan(&r.RouteUser, &r.TargetHost, &r.TargetPort, &r.TargetUser, &r.AuthType, &pw, &pk, &pp, &enabled, &testAt, &testOK, &testErr, &credID); err != nil {
+	if err := scan(&r.RouteUser, &r.TargetHost, &r.TargetPort, &enabled, &testAt, &testOK, &testErr, &credID); err != nil {
 		return r, err
 	}
-	r.AuthPassword, r.AuthPrivateKey, r.AuthPrivateKeyPassphrase = pw.String, pk.String, pp.String
 	r.Enabled = enabled != 0
 	if testAt.Valid {
 		r.LastTestAt = &testAt.Time
@@ -241,21 +237,23 @@ func scanRoute(scan func(dest ...any) error) (RouteRecord, error) {
 	return r, nil
 }
 
-// resolveServerCredential 如果这条路由指定了共享凭据,就把认证信息从 server_credentials 表里读出来,
-// 覆盖掉路由自己的 Auth* 字段,让调用方(拨号连接、Web API 展示)不用关心两种模式的区别。
+// resolveServerCredential 把这条路由关联的"服务器凭据"里的目标用户名/密码/私钥读出来,
+// 填进 RouteRecord 的只读字段,供拨号连接和 Web API 展示使用。没关联凭据时这些字段留空,
+// 路由处于"暂不可连接"的状态,需要去编辑指定一个凭据。
 func (s *Store) resolveServerCredential(r *RouteRecord) error {
 	if r.ServerCredentialID == nil {
 		return nil
 	}
-	var label, authType string
+	var label, targetUser, authType string
 	var pw, pk, pp sql.NullString
-	err := s.db.QueryRow(`SELECT label, auth_type, auth_password, auth_private_key, auth_private_key_passphrase
+	err := s.db.QueryRow(`SELECT label, target_user, auth_type, auth_password, auth_private_key, auth_private_key_passphrase
 		FROM server_credentials WHERE id = ?`, *r.ServerCredentialID).
-		Scan(&label, &authType, &pw, &pk, &pp)
+		Scan(&label, &targetUser, &authType, &pw, &pk, &pp)
 	if err != nil {
 		return fmt.Errorf("共享凭据 %d 不存在: %w", *r.ServerCredentialID, err)
 	}
 	r.ServerCredentialLabel = label
+	r.TargetUser = targetUser
 	r.AuthType = authType
 	r.AuthPassword = pw.String
 	r.AuthPrivateKey = pk.String
@@ -330,45 +328,22 @@ func (s *Store) listClientCredentialLabelsForRoute(routeUser string) ([]string, 
 }
 
 func (s *Store) UpsertRoute(r RouteRecord) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// 用了共享的"服务器凭据"的话,认证信息以 server_credentials 表为准,这条路由自己的
-	// auth_* 字段就不用存了(避免同一份密码/私钥在两个地方各存一份、改的时候漏改)。
-	// auth_type 列有 NOT NULL 约束,存个 "shared" 占位,实际读取时会被 resolveServerCredential 覆盖。
-	authType, authPassword, authPrivateKey, authPrivateKeyPassphrase := r.AuthType, r.AuthPassword, r.AuthPrivateKey, r.AuthPrivateKeyPassphrase
 	var credentialID sql.NullInt64
 	if r.ServerCredentialID != nil {
 		credentialID = sql.NullInt64{Int64: *r.ServerCredentialID, Valid: true}
-		authType = "shared"
-		authPassword, authPrivateKey, authPrivateKeyPassphrase = "", "", ""
 	}
 
 	// enabled 不在这里改:新建时用表的 DEFAULT 1,编辑已有路由时保留原值,
 	// 是否启用由 SetRouteEnabled 单独控制,避免保存其他字段时不小心把开关状态带跑偏。
-	_, err = tx.Exec(`INSERT INTO routes(route_user, target_host, target_port, target_user, auth_type,
-			auth_password, auth_private_key, auth_private_key_passphrase, server_credential_id, updated_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+	_, err := s.db.Exec(`INSERT INTO routes(route_user, target_host, target_port, server_credential_id, updated_at)
+		VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(route_user) DO UPDATE SET
 			target_host = excluded.target_host,
 			target_port = excluded.target_port,
-			target_user = excluded.target_user,
-			auth_type = excluded.auth_type,
-			auth_password = excluded.auth_password,
-			auth_private_key = excluded.auth_private_key,
-			auth_private_key_passphrase = excluded.auth_private_key_passphrase,
 			server_credential_id = excluded.server_credential_id,
 			updated_at = CURRENT_TIMESTAMP`,
-		r.RouteUser, r.TargetHost, r.TargetPort, r.TargetUser, authType,
-		authPassword, authPrivateKey, authPrivateKeyPassphrase, credentialID)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
+		r.RouteUser, r.TargetHost, r.TargetPort, credentialID)
+	return err
 }
 
 // SetRouteEnabled 启用/禁用一条路由;禁用后 proxy 会在认证阶段直接拒绝这个别名的登录,
@@ -404,6 +379,7 @@ func (s *Store) UpdateRouteTestResult(routeUser string, ok bool, testErr string)
 type ServerCredential struct {
 	ID                       int64    `json:"id"`
 	Label                    string   `json:"label"`
+	TargetUser               string   `json:"target_user"`
 	AuthType                 string   `json:"auth_type"` // password | private_key
 	AuthPassword             string   `json:"auth_password,omitempty"`
 	AuthPrivateKey           string   `json:"auth_private_key,omitempty"`
@@ -412,7 +388,7 @@ type ServerCredential struct {
 }
 
 func (s *Store) ListServerCredentials() ([]ServerCredential, error) {
-	rows, err := s.db.Query(`SELECT id, label, auth_type, auth_password, auth_private_key, auth_private_key_passphrase
+	rows, err := s.db.Query(`SELECT id, label, target_user, auth_type, auth_password, auth_private_key, auth_private_key_passphrase
 		FROM server_credentials ORDER BY label`)
 	if err != nil {
 		return nil, err
@@ -421,7 +397,7 @@ func (s *Store) ListServerCredentials() ([]ServerCredential, error) {
 	for rows.Next() {
 		var c ServerCredential
 		var pw, pk, pp sql.NullString
-		if err := rows.Scan(&c.ID, &c.Label, &c.AuthType, &pw, &pk, &pp); err != nil {
+		if err := rows.Scan(&c.ID, &c.Label, &c.TargetUser, &c.AuthType, &pw, &pk, &pp); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -443,9 +419,9 @@ func (s *Store) ListServerCredentials() ([]ServerCredential, error) {
 func (s *Store) GetServerCredential(id int64) (*ServerCredential, error) {
 	var c ServerCredential
 	var pw, pk, pp sql.NullString
-	err := s.db.QueryRow(`SELECT id, label, auth_type, auth_password, auth_private_key, auth_private_key_passphrase
+	err := s.db.QueryRow(`SELECT id, label, target_user, auth_type, auth_password, auth_private_key, auth_private_key_passphrase
 		FROM server_credentials WHERE id = ?`, id).
-		Scan(&c.ID, &c.Label, &c.AuthType, &pw, &pk, &pp)
+		Scan(&c.ID, &c.Label, &c.TargetUser, &c.AuthType, &pw, &pk, &pp)
 	if err != nil {
 		return nil, err
 	}
@@ -476,9 +452,9 @@ func (s *Store) listRoutesUsingServerCredential(id int64) ([]string, error) {
 }
 
 func (s *Store) CreateServerCredential(c ServerCredential) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO server_credentials(label, auth_type, auth_password, auth_private_key, auth_private_key_passphrase)
-		VALUES(?, ?, ?, ?, ?)`,
-		c.Label, c.AuthType, c.AuthPassword, c.AuthPrivateKey, c.AuthPrivateKeyPassphrase)
+	res, err := s.db.Exec(`INSERT INTO server_credentials(label, target_user, auth_type, auth_password, auth_private_key, auth_private_key_passphrase)
+		VALUES(?, ?, ?, ?, ?, ?)`,
+		c.Label, c.TargetUser, c.AuthType, c.AuthPassword, c.AuthPrivateKey, c.AuthPrivateKeyPassphrase)
 	if err != nil {
 		return 0, err
 	}
@@ -486,9 +462,9 @@ func (s *Store) CreateServerCredential(c ServerCredential) (int64, error) {
 }
 
 func (s *Store) UpdateServerCredential(id int64, c ServerCredential) error {
-	res, err := s.db.Exec(`UPDATE server_credentials SET label = ?, auth_type = ?, auth_password = ?,
+	res, err := s.db.Exec(`UPDATE server_credentials SET label = ?, target_user = ?, auth_type = ?, auth_password = ?,
 		auth_private_key = ?, auth_private_key_passphrase = ? WHERE id = ?`,
-		c.Label, c.AuthType, c.AuthPassword, c.AuthPrivateKey, c.AuthPrivateKeyPassphrase, id)
+		c.Label, c.TargetUser, c.AuthType, c.AuthPassword, c.AuthPrivateKey, c.AuthPrivateKeyPassphrase, id)
 	if err != nil {
 		return err
 	}

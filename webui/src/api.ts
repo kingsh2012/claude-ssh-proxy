@@ -5,11 +5,6 @@ export interface RouteRecord {
   route_user: string;
   target_host: string;
   target_port: number;
-  target_user: string;
-  auth_type: AuthType;
-  auth_password?: string;
-  auth_private_key?: string;
-  auth_private_key_passphrase?: string;
 
   enabled: boolean;
 
@@ -19,8 +14,10 @@ export interface RouteRecord {
   last_test_ok: boolean | null;
   last_test_error?: string;
 
-  // 设置了共享的"服务器凭据"时,这条路由自己的 auth_type/auth_password/auth_private_key
-  // 会被忽略,认证信息以凭据为准;server_credential_label 是只读展示字段。
+  // 认证信息(目标用户名/密码/私钥)完全来自关联的"服务器凭据",这几个字段都是只读展示,
+  // 不能通过表单直接编辑。server_credential_id 留空表示这条服务器暂时没有可用的认证信息。
+  target_user?: string;
+  auth_type?: AuthType;
   server_credential_id?: number | null;
   server_credential_label?: string;
 }
@@ -38,6 +35,7 @@ export interface ClientCredential {
 export interface ServerCredential {
   id: number;
   label: string;
+  target_user: string;
   auth_type: AuthType;
   auth_password?: string;
   auth_private_key?: string;

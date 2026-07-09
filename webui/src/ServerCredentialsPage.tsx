@@ -112,7 +112,7 @@ export function ServerCredentialsPage() {
               <th className="px-4 py-2">名称</th>
               <th className="px-4 py-2">SSH登录名</th>
               <th className="px-4 py-2">认证方式</th>
-              <th className="px-4 py-2">被哪些服务器使用</th>
+              <th className="px-4 py-2">绑定的服务器</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>

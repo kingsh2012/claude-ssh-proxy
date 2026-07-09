@@ -116,7 +116,7 @@ export function ClientCredentialsPage() {
               <th className="px-4 py-2">ID</th>
               <th className="px-4 py-2">名称</th>
               <th className="px-4 py-2">认证方式</th>
-              <th className="px-4 py-2">关联的服务器</th>
+              <th className="px-4 py-2">绑定的服务器</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>

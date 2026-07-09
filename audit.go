@@ -14,7 +14,7 @@ const auditMaxDetailBytes = 64 * 1024
 // 关键信息:执行的命令、shell 阶段的输入输出、退出码,结束时落一条审计记录。
 type auditSession struct {
 	store                 *Store
-	loginName             string
+	proxyUser             string
 	remoteAddr            string
 	targetHost            string
 	targetPort            int
@@ -26,9 +26,9 @@ type auditSession struct {
 	exitStatus *int
 }
 
-func newAuditSession(store *Store, loginName, remoteAddr, targetHost string, targetPort int, clientCredentialLabel string) *auditSession {
+func newAuditSession(store *Store, proxyUser, remoteAddr, targetHost string, targetPort int, clientCredentialLabel string) *auditSession {
 	return &auditSession{
-		store: store, loginName: loginName, remoteAddr: remoteAddr,
+		store: store, proxyUser: proxyUser, remoteAddr: remoteAddr,
 		targetHost: targetHost, targetPort: targetPort, clientCredentialLabel: clientCredentialLabel,
 	}
 }
@@ -85,7 +85,7 @@ func (a *auditSession) finish() {
 		return // 没有 exec/shell/subsystem 请求(比如纯端口转发),不记录
 	}
 	err := a.store.InsertAuditLog(AuditLog{
-		LoginName:             a.loginName,
+		ProxyUser:             a.proxyUser,
 		RemoteAddr:            a.remoteAddr,
 		TargetHost:            a.targetHost,
 		TargetPort:            a.targetPort,

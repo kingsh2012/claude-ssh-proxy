@@ -2,7 +2,7 @@ export type AuthType = "password" | "private_key";
 export type ClientAuthType = "public_key" | "password";
 
 export interface ServerRecord {
-  login_name: string;
+  proxy_user: string;
   target_host: string;
   target_port: number;
 
@@ -29,7 +29,7 @@ export interface ClientCredential {
   public_key?: string;
   password?: string; // 明文,只在设置/修改密码时非空传入
   has_password: boolean;
-  login_names: string[];
+  proxy_users: string[];
 }
 
 export interface ServerCredential {
@@ -40,13 +40,13 @@ export interface ServerCredential {
   auth_password?: string;
   auth_private_key?: string;
   auth_private_key_passphrase?: string;
-  login_names: string[];
+  proxy_users: string[];
 }
 
 export interface AuditLog {
   id: number;
   ts: string;
-  login_name: string;
+  proxy_user: string;
   remote_addr: string;
   target_host: string;
   target_port: number;
@@ -110,15 +110,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(server),
     }),
-  deleteServer: (loginName: string) =>
-    request<{ ok: boolean }>(`/api/servers/${encodeURIComponent(loginName)}`, {
+  deleteServer: (proxyUser: string) =>
+    request<{ ok: boolean }>(`/api/servers/${encodeURIComponent(proxyUser)}`, {
       method: "DELETE",
     }),
-  testServer: (loginName: string) =>
-    request<ServerRecord>(`/api/servers/${encodeURIComponent(loginName)}/test`, { method: "POST" }),
+  testServer: (proxyUser: string) =>
+    request<ServerRecord>(`/api/servers/${encodeURIComponent(proxyUser)}/test`, { method: "POST" }),
   testAllServers: () => request<ServerRecord[]>("/api/servers/test-all", { method: "POST" }),
-  setServerEnabled: (loginName: string, enabled: boolean) =>
-    request<ServerRecord>(`/api/servers/${encodeURIComponent(loginName)}/enabled`, {
+  setServerEnabled: (proxyUser: string, enabled: boolean) =>
+    request<ServerRecord>(`/api/servers/${encodeURIComponent(proxyUser)}/enabled`, {
       method: "PUT",
       body: JSON.stringify({ enabled }),
     }),
@@ -158,9 +158,9 @@ export const api = {
       body: JSON.stringify({ listen_addr: listenAddr }),
     }),
 
-  listAudit: (limit = 200, loginName = "") =>
+  listAudit: (limit = 200, proxyUser = "") =>
     request<AuditLog[]>(
-      `/api/audit?limit=${limit}${loginName ? `&login_name=${encodeURIComponent(loginName)}` : ""}`
+      `/api/audit?limit=${limit}${proxyUser ? `&proxy_user=${encodeURIComponent(proxyUser)}` : ""}`
     ),
 };
 

@@ -96,16 +96,16 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 	}
 	defer sconn.Close()
 
-	loginName := sconn.Permissions.Extensions["server-user"]
+	proxyUser := sconn.Permissions.Extensions["server-user"]
 	clientCredentialLabel := sconn.Permissions.Extensions["client-credential-label"]
-	server, err := p.store.GetServer(loginName)
+	server, err := p.store.GetServer(proxyUser)
 	if err != nil {
-		log.Printf("[%s] 服务器 %q 不存在", remoteAddr, loginName)
+		log.Printf("[%s] 服务器 %q 不存在", remoteAddr, proxyUser)
 		return
 	}
 
 	log.Printf("[%s] 用户 %q 认证通过,路由到 %s@%s:%d",
-		remoteAddr, loginName, server.TargetUser, server.TargetHost, server.TargetPort)
+		remoteAddr, proxyUser, server.TargetUser, server.TargetHost, server.TargetPort)
 
 	client, err := dialUpstream(*server)
 	if err != nil {
@@ -121,7 +121,7 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 		wg.Add(1)
 		go func(nch ssh.NewChannel) {
 			defer wg.Done()
-			p.forwardChannel(nch, client, loginName, remoteAddr, server.TargetHost, server.TargetPort, clientCredentialLabel)
+			p.forwardChannel(nch, client, proxyUser, remoteAddr, server.TargetHost, server.TargetPort, clientCredentialLabel)
 		}(newChan)
 	}
 	wg.Wait()
@@ -174,7 +174,7 @@ func TestServer(server ServerRecord) error {
 // forwardChannel 把下游(Claude 侧)发起的一个 channel 对应地在上游(真实目标机器)
 // 打开一个同类型 channel,双向转发数据和 out-of-band 请求;对 "session" 类型的
 // channel(exec/shell/subsystem)顺带记录审计日志。
-func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, loginName, remoteAddr, targetHost string, targetPort int, clientCredentialLabel string) {
+func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxyUser, remoteAddr, targetHost string, targetPort int, clientCredentialLabel string) {
 	upChan, upReqs, err := client.OpenChannel(newChan.ChannelType(), newChan.ExtraData())
 	if err != nil {
 		if openErr, ok := err.(*ssh.OpenChannelError); ok {
@@ -194,7 +194,7 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, login
 
 	var audit *auditSession
 	if newChan.ChannelType() == "session" {
-		audit = newAuditSession(p.store, loginName, remoteAddr, targetHost, targetPort, clientCredentialLabel)
+		audit = newAuditSession(p.store, proxyUser, remoteAddr, targetHost, targetPort, clientCredentialLabel)
 		defer audit.finish()
 	}
 

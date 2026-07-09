@@ -4,7 +4,7 @@ import { ChipList } from "./ChipList";
 import { Tooltip } from "./Tooltip";
 
 const emptyServer: ServerRecord = {
-  login_name: "",
+  proxy_user: "",
   target_host: "",
   target_port: 22,
   enabled: true,
@@ -15,26 +15,26 @@ const emptyServer: ServerRecord = {
 };
 
 // reconcileClientCredentials 把"这个代理登录名应该关联哪些客户端凭据"落地成实际的 API 调用:
-// 对比每份客户端凭据当前的 login_names 和期望的勾选结果,只在有变化的凭据上调用更新接口。
+// 对比每份客户端凭据当前的 proxy_users 和期望的勾选结果,只在有变化的凭据上调用更新接口。
 // save() 和 CSV 导入(逐行调用)都用这个函数,保证行为一致。
 //
-// 注意:成功调用后会把 c.login_names 就地更新——批量导入时如果好几行服务器共用同一份
+// 注意:成功调用后会把 c.proxy_users 就地更新——批量导入时如果好几行服务器共用同一份
 // 客户端凭据,必须让后面几行看到前面几行刚写入的关联,否则会互相覆盖,只有最后一行生效。
 async function reconcileClientCredentials(
   clientCredentials: ClientCredential[],
-  loginName: string,
+  proxyUser: string,
   selectedIds: Set<number>
 ) {
   for (const c of clientCredentials) {
     const shouldHave = selectedIds.has(c.id);
-    const currentlyHas = c.login_names.includes(loginName);
+    const currentlyHas = c.proxy_users.includes(proxyUser);
     if (shouldHave === currentlyHas) continue;
     const { id, has_password, ...rest } = c;
     void id;
     void has_password;
-    const loginNames = shouldHave ? [...c.login_names, loginName] : c.login_names.filter((ln) => ln !== loginName);
-    await api.updateClientCredential(c.id, { ...rest, login_names: loginNames });
-    c.login_names = loginNames;
+    const proxyUsers = shouldHave ? [...c.proxy_users, proxyUser] : c.proxy_users.filter((ln) => ln !== proxyUser);
+    await api.updateClientCredential(c.id, { ...rest, proxy_users: proxyUsers });
+    c.proxy_users = proxyUsers;
   }
 }
 
@@ -65,11 +65,11 @@ export function ServersPage() {
     load();
   }, []);
 
-  async function testOne(loginName: string) {
-    setTestingServer(loginName);
+  async function testOne(proxyUser: string) {
+    setTestingServer(proxyUser);
     try {
-      const updated = await api.testServer(loginName);
-      setServers((prev) => prev.map((s) => (s.login_name === loginName ? updated : s)));
+      const updated = await api.testServer(proxyUser);
+      setServers((prev) => prev.map((s) => (s.proxy_user === proxyUser ? updated : s)));
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "测试失败");
     } finally {
@@ -91,15 +91,15 @@ export function ServersPage() {
 
   async function toggleEnabled(s: ServerRecord) {
     try {
-      const updated = await api.setServerEnabled(s.login_name, !s.enabled);
-      setServers((prev) => prev.map((x) => (x.login_name === s.login_name ? updated : x)));
+      const updated = await api.setServerEnabled(s.proxy_user, !s.enabled);
+      setServers((prev) => prev.map((x) => (x.proxy_user === s.proxy_user ? updated : x)));
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "操作失败");
     }
   }
 
-  function credentialIdsForServer(loginName: string): Set<number> {
-    return new Set(clientCredentials.filter((c) => c.login_names.includes(loginName)).map((c) => c.id));
+  function credentialIdsForServer(proxyUser: string): Set<number> {
+    return new Set(clientCredentials.filter((c) => c.proxy_users.includes(proxyUser)).map((c) => c.id));
   }
 
   function startCreate() {
@@ -111,14 +111,14 @@ export function ServersPage() {
 
   function startEdit(s: ServerRecord) {
     setEditing({ ...s });
-    setSelectedCredentialIds(credentialIdsForServer(s.login_name));
+    setSelectedCredentialIds(credentialIdsForServer(s.proxy_user));
     setIsNew(false);
     setError("");
   }
 
   function duplicate(s: ServerRecord) {
-    setEditing({ ...s, login_name: "" });
-    setSelectedCredentialIds(credentialIdsForServer(s.login_name));
+    setEditing({ ...s, proxy_user: "" });
+    setSelectedCredentialIds(credentialIdsForServer(s.proxy_user));
     setIsNew(true);
     setError("");
   }
@@ -140,7 +140,7 @@ export function ServersPage() {
     setError("");
     try {
       await api.upsertServer(editing);
-      await reconcileClientCredentials(clientCredentials, editing.login_name, selectedCredentialIds);
+      await reconcileClientCredentials(clientCredentials, editing.proxy_user, selectedCredentialIds);
       setEditing(null);
       await load();
     } catch (err) {
@@ -148,9 +148,9 @@ export function ServersPage() {
     }
   }
 
-  async function remove(loginName: string) {
-    if (!confirm(`确定删除服务器 ${loginName} 吗?`)) return;
-    await api.deleteServer(loginName);
+  async function remove(proxyUser: string) {
+    if (!confirm(`确定删除服务器 ${proxyUser} 吗?`)) return;
+    await api.deleteServer(proxyUser);
     await load();
   }
 
@@ -200,8 +200,8 @@ export function ServersPage() {
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {servers.map((s) => (
-              <tr key={s.login_name} className={`text-slate-800 dark:text-slate-200 ${s.enabled ? "" : "opacity-60"}`}>
-                <td className="px-4 py-2 font-mono">{s.login_name}</td>
+              <tr key={s.proxy_user} className={`text-slate-800 dark:text-slate-200 ${s.enabled ? "" : "opacity-60"}`}>
+                <td className="px-4 py-2 font-mono">{s.proxy_user}</td>
                 <td className="px-4 py-2 font-mono">
                   {s.target_host}:{s.target_port}
                 </td>
@@ -235,11 +235,11 @@ export function ServersPage() {
                     {s.enabled ? "禁用" : "启用"}
                   </button>
                   <button
-                    onClick={() => testOne(s.login_name)}
-                    disabled={testingServer === s.login_name || testingAll}
+                    onClick={() => testOne(s.proxy_user)}
+                    disabled={testingServer === s.proxy_user || testingAll}
                     className="mr-3 text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
                   >
-                    {testingServer === s.login_name ? "测试中..." : "测试连接"}
+                    {testingServer === s.proxy_user ? "测试中..." : "测试连接"}
                   </button>
                   <button onClick={() => duplicate(s)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
                     复制
@@ -247,7 +247,7 @@ export function ServersPage() {
                   <button onClick={() => startEdit(s)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
                     编辑
                   </button>
-                  <button onClick={() => remove(s.login_name)} className="text-red-600 hover:underline dark:text-red-400">
+                  <button onClick={() => remove(s.proxy_user)} className="text-red-600 hover:underline dark:text-red-400">
                     删除
                   </button>
                 </td>
@@ -268,15 +268,15 @@ export function ServersPage() {
         <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-slate-950">
             <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
-              {isNew ? "添加服务器" : `编辑 ${editing.login_name}`}
+              {isNew ? "添加服务器" : `编辑 ${editing.proxy_user}`}
             </h3>
 
             <Field label="代理登录名(唯一)">
               <input
                 disabled={!isNew}
                 className="input"
-                value={editing.login_name}
-                onChange={(e) => setEditing({ ...editing, login_name: e.target.value })}
+                value={editing.proxy_user}
+                onChange={(e) => setEditing({ ...editing, proxy_user: e.target.value })}
               />
             </Field>
 
@@ -410,11 +410,11 @@ function TestStatus({ server }: { server: ServerRecord }) {
   );
 }
 
-const IMPORT_HEADER = "login_name,target_host,target_port,server_credential_id,client_credential_id";
+const IMPORT_HEADER = "proxy_user,target_host,target_port,server_credential_id,client_credential_id";
 
 interface ParsedImportRow {
   line: number; // 1-based,含表头
-  login_name: string;
+  proxy_user: string;
   target_host: string;
   target_port: number;
   server_credential_id: number | null;
@@ -423,7 +423,7 @@ interface ParsedImportRow {
 
 interface ImportRowResult {
   line: number;
-  login_name: string;
+  proxy_user: string;
   ok: boolean;
   message: string;
 }
@@ -457,10 +457,10 @@ function parseImportCSV(
       errors.push(`第 ${lineNo} 行:应为 5 列,实际 ${cols.length} 列`);
       continue;
     }
-    const [loginNameRaw, targetHostRaw, targetPortRaw, serverCredRaw, clientCredRaw] = cols.map((c) => c.trim());
+    const [proxyUserRaw, targetHostRaw, targetPortRaw, serverCredRaw, clientCredRaw] = cols.map((c) => c.trim());
 
-    if (!loginNameRaw) {
-      errors.push(`第 ${lineNo} 行:login_name 不能为空`);
+    if (!proxyUserRaw) {
+      errors.push(`第 ${lineNo} 行:proxy_user 不能为空`);
     }
     if (!targetHostRaw) {
       errors.push(`第 ${lineNo} 行:target_host 不能为空`);
@@ -502,7 +502,7 @@ function parseImportCSV(
 
     rows.push({
       line: lineNo,
-      login_name: loginNameRaw,
+      proxy_user: proxyUserRaw,
       target_host: targetHostRaw,
       target_port: targetPort,
       server_credential_id: serverCredentialId,
@@ -541,33 +541,33 @@ function ImportModal({
     setErrors([]);
     setRunning(true);
 
-    // 拷贝一份客户端凭据快照,让整批导入过程中的 login_names 变化在批内累积、
+    // 拷贝一份客户端凭据快照,让整批导入过程中的 proxy_users 变化在批内累积、
     // 又不直接改动父组件的 state(reconcileClientCredentials 会就地更新这份拷贝)。
-    const workingCredentials = clientCredentials.map((c) => ({ ...c, login_names: [...c.login_names] }));
+    const workingCredentials = clientCredentials.map((c) => ({ ...c, proxy_users: [...c.proxy_users] }));
 
-    const existingLogins = new Set(servers.map((s) => s.login_name));
+    const existingLogins = new Set(servers.map((s) => s.proxy_user));
     const rowResults: ImportRowResult[] = [];
     for (const row of rows) {
-      const wasExisting = existingLogins.has(row.login_name);
+      const wasExisting = existingLogins.has(row.proxy_user);
       try {
         await api.upsertServer({
           ...emptyServer,
-          login_name: row.login_name,
+          proxy_user: row.proxy_user,
           target_host: row.target_host,
           target_port: row.target_port,
           server_credential_id: row.server_credential_id,
         });
-        await reconcileClientCredentials(workingCredentials, row.login_name, new Set(row.client_credential_ids));
+        await reconcileClientCredentials(workingCredentials, row.proxy_user, new Set(row.client_credential_ids));
         rowResults.push({
           line: row.line,
-          login_name: row.login_name,
+          proxy_user: row.proxy_user,
           ok: true,
           message: wasExisting ? "已更新" : "已新增",
         });
       } catch (err) {
         rowResults.push({
           line: row.line,
-          login_name: row.login_name,
+          proxy_user: row.proxy_user,
           ok: false,
           message: err instanceof ApiError ? err.message : "失败",
         });
@@ -585,7 +585,7 @@ function ImportModal({
         <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">导入服务器(CSV)</h3>
 
         <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">
-          第一行必须是表头,后面每行一台服务器。<code className="rounded bg-slate-100 px-1 dark:bg-slate-800">login_name</code>
+          第一行必须是表头,后面每行一台服务器。<code className="rounded bg-slate-100 px-1 dark:bg-slate-800">proxy_user</code>
           {" "}是唯一键,已存在则覆盖更新,不存在则新增。<code className="rounded bg-slate-100 px-1 dark:bg-slate-800">target_port</code>
           /<code className="rounded bg-slate-100 px-1 dark:bg-slate-800">server_credential_id</code>/
           <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">client_credential_id</code> 可以留空,分别默认
@@ -618,7 +618,7 @@ srv3,192.168.1.4,,,`}
           <div className="mt-2 max-h-48 overflow-y-auto rounded border border-slate-200 p-2 text-xs dark:border-slate-800">
             {results.map((r) => (
               <div key={r.line} className={r.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>
-                第 {r.line} 行 {r.login_name}:{r.message}
+                第 {r.line} 行 {r.proxy_user}:{r.message}
               </div>
             ))}
           </div>

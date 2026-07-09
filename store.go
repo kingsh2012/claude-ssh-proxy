@@ -47,7 +47,7 @@ func (s *Store) migrate() error {
 			value TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS servers (
-			login_name TEXT PRIMARY KEY,
+			proxy_user TEXT PRIMARY KEY,
 			target_host TEXT NOT NULL,
 			target_port INTEGER NOT NULL DEFAULT 22,
 			enabled INTEGER NOT NULL DEFAULT 1,
@@ -77,14 +77,14 @@ func (s *Store) migrate() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_client_credentials (
-			login_name TEXT NOT NULL REFERENCES servers(login_name) ON DELETE CASCADE,
+			proxy_user TEXT NOT NULL REFERENCES servers(proxy_user) ON DELETE CASCADE,
 			client_credential_id INTEGER NOT NULL REFERENCES client_credentials(id) ON DELETE CASCADE,
-			PRIMARY KEY (login_name, client_credential_id)
+			PRIMARY KEY (proxy_user, client_credential_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			ts DATETIME DEFAULT CURRENT_TIMESTAMP,
-			login_name TEXT,
+			proxy_user TEXT,
 			remote_addr TEXT,
 			target_host TEXT,
 			target_port INTEGER,
@@ -95,7 +95,7 @@ func (s *Store) migrate() error {
 			client_credential_label TEXT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(ts)`,
-		`CREATE INDEX IF NOT EXISTS idx_audit_login_name ON audit_logs(login_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_proxy_user ON audit_logs(proxy_user)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -180,7 +180,7 @@ func (s *Store) SetAdminPassword(username, password string) error {
 // ---------- servers ----------
 
 type ServerRecord struct {
-	LoginName  string `json:"login_name"`
+	ProxyUser  string `json:"proxy_user"`
 	TargetHost string `json:"target_host"`
 	TargetPort int    `json:"target_port"`
 
@@ -209,7 +209,7 @@ type ServerRecord struct {
 	ServerCredentialLabel string `json:"server_credential_label,omitempty"` // 只读
 }
 
-const serverSelectColumns = `login_name, target_host, target_port, enabled,
+const serverSelectColumns = `proxy_user, target_host, target_port, enabled,
 	last_test_at, last_test_ok, last_test_error, server_credential_id`
 
 func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
@@ -219,7 +219,7 @@ func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
 	var testAt sql.NullTime
 	var testOK sql.NullInt64
 	var credID sql.NullInt64
-	if err := scan(&r.LoginName, &r.TargetHost, &r.TargetPort, &enabled, &testAt, &testOK, &testErr, &credID); err != nil {
+	if err := scan(&r.ProxyUser, &r.TargetHost, &r.TargetPort, &enabled, &testAt, &testOK, &testErr, &credID); err != nil {
 		return r, err
 	}
 	r.Enabled = enabled != 0
@@ -262,7 +262,7 @@ func (s *Store) resolveServerCredential(r *ServerRecord) error {
 }
 
 func (s *Store) ListServers() ([]ServerRecord, error) {
-	rows, err := s.db.Query(`SELECT ` + serverSelectColumns + ` FROM servers ORDER BY login_name`)
+	rows, err := s.db.Query(`SELECT ` + serverSelectColumns + ` FROM servers ORDER BY proxy_user`)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +279,7 @@ func (s *Store) ListServers() ([]ServerRecord, error) {
 	rows.Close()
 
 	for i := range out {
-		labels, err := s.listClientCredentialLabelsForServer(out[i].LoginName)
+		labels, err := s.listClientCredentialLabelsForServer(out[i].ProxyUser)
 		if err != nil {
 			return nil, err
 		}
@@ -291,13 +291,13 @@ func (s *Store) ListServers() ([]ServerRecord, error) {
 	return out, nil
 }
 
-func (s *Store) GetServer(loginName string) (*ServerRecord, error) {
-	row := s.db.QueryRow(`SELECT `+serverSelectColumns+` FROM servers WHERE login_name = ?`, loginName)
+func (s *Store) GetServer(proxyUser string) (*ServerRecord, error) {
+	row := s.db.QueryRow(`SELECT `+serverSelectColumns+` FROM servers WHERE proxy_user = ?`, proxyUser)
 	r, err := scanServer(row.Scan)
 	if err != nil {
 		return nil, err
 	}
-	labels, err := s.listClientCredentialLabelsForServer(loginName)
+	labels, err := s.listClientCredentialLabelsForServer(proxyUser)
 	if err != nil {
 		return nil, err
 	}
@@ -308,10 +308,10 @@ func (s *Store) GetServer(loginName string) (*ServerRecord, error) {
 	return &r, nil
 }
 
-func (s *Store) listClientCredentialLabelsForServer(loginName string) ([]string, error) {
+func (s *Store) listClientCredentialLabelsForServer(proxyUser string) ([]string, error) {
 	rows, err := s.db.Query(`SELECT cc.label FROM client_credentials cc
 		JOIN server_client_credentials rcc ON rcc.client_credential_id = cc.id
-		WHERE rcc.login_name = ? ORDER BY cc.label`, loginName)
+		WHERE rcc.proxy_user = ? ORDER BY cc.label`, proxyUser)
 	if err != nil {
 		return nil, err
 	}
@@ -335,39 +335,39 @@ func (s *Store) UpsertServer(r ServerRecord) error {
 
 	// enabled 不在这里改:新建时用表的 DEFAULT 1,编辑已有服务器时保留原值,
 	// 是否启用由 SetServerEnabled 单独控制,避免保存其他字段时不小心把开关状态带跑偏。
-	_, err := s.db.Exec(`INSERT INTO servers(login_name, target_host, target_port, server_credential_id, updated_at)
+	_, err := s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, server_credential_id, updated_at)
 		VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(login_name) DO UPDATE SET
+		ON CONFLICT(proxy_user) DO UPDATE SET
 			target_host = excluded.target_host,
 			target_port = excluded.target_port,
 			server_credential_id = excluded.server_credential_id,
 			updated_at = CURRENT_TIMESTAMP`,
-		r.LoginName, r.TargetHost, r.TargetPort, credentialID)
+		r.ProxyUser, r.TargetHost, r.TargetPort, credentialID)
 	return err
 }
 
 // SetServerEnabled 启用/禁用一条服务器;禁用后 proxy 会在认证阶段直接拒绝这个别名的登录,
 // 不管客户端凭据或共享凭据是否匹配。
-func (s *Store) SetServerEnabled(loginName string, enabled bool) error {
-	res, err := s.db.Exec(`UPDATE servers SET enabled = ? WHERE login_name = ?`, boolToInt(enabled), loginName)
+func (s *Store) SetServerEnabled(proxyUser string, enabled bool) error {
+	res, err := s.db.Exec(`UPDATE servers SET enabled = ? WHERE proxy_user = ?`, boolToInt(enabled), proxyUser)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("服务器 %q 不存在", loginName)
+		return fmt.Errorf("服务器 %q 不存在", proxyUser)
 	}
 	return nil
 }
 
-func (s *Store) DeleteServer(loginName string) error {
-	_, err := s.db.Exec(`DELETE FROM servers WHERE login_name = ?`, loginName)
+func (s *Store) DeleteServer(proxyUser string) error {
+	_, err := s.db.Exec(`DELETE FROM servers WHERE proxy_user = ?`, proxyUser)
 	return err
 }
 
 // UpdateServerTestResult 记录一次"测试 SSH 连接"的结果,供 Web 后台展示。
-func (s *Store) UpdateServerTestResult(loginName string, ok bool, testErr string) error {
-	_, err := s.db.Exec(`UPDATE servers SET last_test_at = CURRENT_TIMESTAMP, last_test_ok = ?, last_test_error = ? WHERE login_name = ?`,
-		boolToInt(ok), testErr, loginName)
+func (s *Store) UpdateServerTestResult(proxyUser string, ok bool, testErr string) error {
+	_, err := s.db.Exec(`UPDATE servers SET last_test_at = CURRENT_TIMESTAMP, last_test_ok = ?, last_test_error = ? WHERE proxy_user = ?`,
+		boolToInt(ok), testErr, proxyUser)
 	return err
 }
 
@@ -375,7 +375,7 @@ func (s *Store) UpdateServerTestResult(loginName string, ok bool, testErr string
 
 // ServerCredential 是一份命名的、可以被多台服务器共用的后端认证信息(密码或私钥)。
 // 很多服务器用同一套密码/私钥登录时,不用在每台服务器里各存一份,改一处、所有引用它的
-// 服务器都跟着生效。LoginNames 是只读字段,展示当前有哪些服务器在用这份凭据。
+// 服务器都跟着生效。ProxyUsers 是只读字段,展示当前有哪些服务器在用这份凭据。
 type ServerCredential struct {
 	ID                       int64    `json:"id"`
 	Label                    string   `json:"label"`
@@ -384,7 +384,7 @@ type ServerCredential struct {
 	AuthPassword             string   `json:"auth_password,omitempty"`
 	AuthPrivateKey           string   `json:"auth_private_key,omitempty"`
 	AuthPrivateKeyPassphrase string   `json:"auth_private_key_passphrase,omitempty"`
-	LoginNames               []string `json:"login_names"`
+	ProxyUsers               []string `json:"proxy_users"`
 }
 
 func (s *Store) ListServerCredentials() ([]ServerCredential, error) {
@@ -407,11 +407,11 @@ func (s *Store) ListServerCredentials() ([]ServerCredential, error) {
 	rows.Close()
 
 	for i := range out {
-		loginNames, err := s.listServersUsingServerCredential(out[i].ID)
+		proxyUsers, err := s.listServersUsingServerCredential(out[i].ID)
 		if err != nil {
 			return nil, err
 		}
-		out[i].LoginNames = loginNames
+		out[i].ProxyUsers = proxyUsers
 	}
 	return out, nil
 }
@@ -426,16 +426,16 @@ func (s *Store) GetServerCredential(id int64) (*ServerCredential, error) {
 		return nil, err
 	}
 	c.AuthPassword, c.AuthPrivateKey, c.AuthPrivateKeyPassphrase = pw.String, pk.String, pp.String
-	loginNames, err := s.listServersUsingServerCredential(id)
+	proxyUsers, err := s.listServersUsingServerCredential(id)
 	if err != nil {
 		return nil, err
 	}
-	c.LoginNames = loginNames
+	c.ProxyUsers = proxyUsers
 	return &c, nil
 }
 
 func (s *Store) listServersUsingServerCredential(id int64) ([]string, error) {
-	rows, err := s.db.Query(`SELECT login_name FROM servers WHERE server_credential_id = ? ORDER BY login_name`, id)
+	rows, err := s.db.Query(`SELECT proxy_user FROM servers WHERE server_credential_id = ? ORDER BY proxy_user`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -477,22 +477,22 @@ func (s *Store) UpdateServerCredential(id int64, c ServerCredential) error {
 // DeleteServerCredential 删除前检查有没有服务器还在用这份凭据,有的话拒绝删除,
 // 避免这些服务器突然失去认证信息、连不上。
 func (s *Store) DeleteServerCredential(id int64) error {
-	loginNames, err := s.listServersUsingServerCredential(id)
+	proxyUsers, err := s.listServersUsingServerCredential(id)
 	if err != nil {
 		return err
 	}
-	if len(loginNames) > 0 {
+	if len(proxyUsers) > 0 {
 		return fmt.Errorf("还有 %d 台服务器在使用这份凭据(%s),请先改成其他凭据或单独指定认证方式,再删除",
-			len(loginNames), strings.Join(loginNames, ", "))
+			len(proxyUsers), strings.Join(proxyUsers, ", "))
 	}
 	_, err = s.db.Exec(`DELETE FROM server_credentials WHERE id = ?`, id)
 	return err
 }
 
-// SetServerCredentialServers 让"哪些服务器使用这份凭据"变成刚好是 loginNames 这个列表:
+// SetServerCredentialServers 让"哪些服务器使用这份凭据"变成刚好是 proxyUsers 这个列表:
 // 不在列表里但之前用着的服务器会被解除关联(server_credential_id 置空),这些服务器的
 // auth_password/auth_private_key 之前用共享凭据时就是空的,解除后需要单独重新设置认证方式。
-func (s *Store) SetServerCredentialServers(credID int64, loginNames []string) error {
+func (s *Store) SetServerCredentialServers(credID int64, proxyUsers []string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -502,8 +502,8 @@ func (s *Store) SetServerCredentialServers(credID int64, loginNames []string) er
 	if _, err := tx.Exec(`UPDATE servers SET server_credential_id = NULL WHERE server_credential_id = ?`, credID); err != nil {
 		return err
 	}
-	for _, ru := range loginNames {
-		res, err := tx.Exec(`UPDATE servers SET server_credential_id = ? WHERE login_name = ?`, credID, ru)
+	for _, ru := range proxyUsers {
+		res, err := tx.Exec(`UPDATE servers SET server_credential_id = ? WHERE proxy_user = ?`, credID, ru)
 		if err != nil {
 			return err
 		}
@@ -517,7 +517,7 @@ func (s *Store) SetServerCredentialServers(credID int64, loginNames []string) er
 // ---------- 客户端凭据(client_credentials) ----------
 
 // ClientCredential 是一个命名的客户端身份(比如某个 Claude Agent),认证方式是公钥或密码,
-// 通过 LoginNames 关联到它能登录哪些服务器,多对多关系:一份凭据可以关联多台服务器,
+// 通过 ProxyUsers 关联到它能登录哪些服务器,多对多关系:一份凭据可以关联多台服务器,
 // 一台服务器也可以被多份凭据共用,任一凭据匹配即可登录。
 type ClientCredential struct {
 	ID          int64    `json:"id"`
@@ -526,7 +526,7 @@ type ClientCredential struct {
 	PublicKey   string   `json:"public_key,omitempty"`
 	Password    string   `json:"password,omitempty"` // 明文,只在设置/修改密码时非空传入
 	HasPassword bool     `json:"has_password"`       // 只读,告知前端当前是否已设置密码
-	LoginNames  []string `json:"login_names"`
+	ProxyUsers  []string `json:"proxy_users"`
 
 	passwordHash string // 内部字段,不参与 JSON 序列化,供认证时比对
 }
@@ -560,11 +560,11 @@ func (s *Store) ListClientCredentials() ([]ClientCredential, error) {
 	rows.Close()
 
 	for i := range out {
-		loginNames, err := s.listServersForClientCredential(out[i].ID)
+		proxyUsers, err := s.listServersForClientCredential(out[i].ID)
 		if err != nil {
 			return nil, err
 		}
-		out[i].LoginNames = loginNames
+		out[i].ProxyUsers = proxyUsers
 	}
 	return out, nil
 }
@@ -575,16 +575,16 @@ func (s *Store) GetClientCredential(id int64) (*ClientCredential, error) {
 	if err != nil {
 		return nil, err
 	}
-	loginNames, err := s.listServersForClientCredential(id)
+	proxyUsers, err := s.listServersForClientCredential(id)
 	if err != nil {
 		return nil, err
 	}
-	c.LoginNames = loginNames
+	c.ProxyUsers = proxyUsers
 	return &c, nil
 }
 
 func (s *Store) listServersForClientCredential(id int64) ([]string, error) {
-	rows, err := s.db.Query(`SELECT login_name FROM server_client_credentials WHERE client_credential_id = ? ORDER BY login_name`, id)
+	rows, err := s.db.Query(`SELECT proxy_user FROM server_client_credentials WHERE client_credential_id = ? ORDER BY proxy_user`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -602,10 +602,10 @@ func (s *Store) listServersForClientCredential(id int64) ([]string, error) {
 
 // ListClientCredentialsForServer 返回关联到某个服务器的所有客户端凭据,供登录认证时比对使用
 // (公钥类型比对 PublicKey,密码类型比对内部的 passwordHash)。
-func (s *Store) ListClientCredentialsForServer(loginName string) ([]ClientCredential, error) {
+func (s *Store) ListClientCredentialsForServer(proxyUser string) ([]ClientCredential, error) {
 	rows, err := s.db.Query(`SELECT cc.id, cc.label, cc.auth_type, cc.public_key, cc.password_hash FROM client_credentials cc
 		JOIN server_client_credentials rcc ON rcc.client_credential_id = cc.id
-		WHERE rcc.login_name = ? ORDER BY cc.label`, loginName)
+		WHERE rcc.proxy_user = ? ORDER BY cc.label`, proxyUser)
 	if err != nil {
 		return nil, err
 	}
@@ -621,7 +621,7 @@ func (s *Store) ListClientCredentialsForServer(loginName string) ([]ClientCreden
 	return out, nil
 }
 
-func (s *Store) CreateClientCredential(c ClientCredential, loginNames []string) (int64, error) {
+func (s *Store) CreateClientCredential(c ClientCredential, proxyUsers []string) (int64, error) {
 	pubKey, pwHash, err := clientCredentialAuthColumns(c, nil)
 	if err != nil {
 		return 0, err
@@ -642,15 +642,15 @@ func (s *Store) CreateClientCredential(c ClientCredential, loginNames []string) 
 	if err != nil {
 		return 0, err
 	}
-	for _, ru := range loginNames {
-		if _, err := tx.Exec(`INSERT INTO server_client_credentials(login_name, client_credential_id) VALUES(?, ?)`, ru, id); err != nil {
+	for _, ru := range proxyUsers {
+		if _, err := tx.Exec(`INSERT INTO server_client_credentials(proxy_user, client_credential_id) VALUES(?, ?)`, ru, id); err != nil {
 			return 0, err
 		}
 	}
 	return id, tx.Commit()
 }
 
-func (s *Store) UpdateClientCredential(id int64, c ClientCredential, loginNames []string) error {
+func (s *Store) UpdateClientCredential(id int64, c ClientCredential, proxyUsers []string) error {
 	existing, err := s.GetClientCredential(id)
 	if err != nil {
 		return fmt.Errorf("客户端凭据 %d 不存在", id)
@@ -678,8 +678,8 @@ func (s *Store) UpdateClientCredential(id int64, c ClientCredential, loginNames 
 	if _, err := tx.Exec(`DELETE FROM server_client_credentials WHERE client_credential_id = ?`, id); err != nil {
 		return err
 	}
-	for _, ru := range loginNames {
-		if _, err := tx.Exec(`INSERT INTO server_client_credentials(login_name, client_credential_id) VALUES(?, ?)`, ru, id); err != nil {
+	for _, ru := range proxyUsers {
+		if _, err := tx.Exec(`INSERT INTO server_client_credentials(proxy_user, client_credential_id) VALUES(?, ?)`, ru, id); err != nil {
 			return err
 		}
 	}
@@ -723,7 +723,7 @@ func (s *Store) DeleteClientCredential(id int64) error {
 type AuditLog struct {
 	ID                    int64     `json:"id"`
 	Ts                    time.Time `json:"ts"`
-	LoginName             string    `json:"login_name"`
+	ProxyUser             string    `json:"proxy_user"`
 	RemoteAddr            string    `json:"remote_addr"`
 	TargetHost            string    `json:"target_host"`
 	TargetPort            int       `json:"target_port"`
@@ -735,9 +735,9 @@ type AuditLog struct {
 }
 
 func (s *Store) InsertAuditLog(a AuditLog) error {
-	_, err := s.db.Exec(`INSERT INTO audit_logs(login_name, remote_addr, target_host, target_port, event_type, detail, exit_status, truncated, client_credential_label)
+	_, err := s.db.Exec(`INSERT INTO audit_logs(proxy_user, remote_addr, target_host, target_port, event_type, detail, exit_status, truncated, client_credential_label)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.LoginName, a.RemoteAddr, a.TargetHost, a.TargetPort, a.EventType, a.Detail, a.ExitStatus, boolToInt(a.Truncated), a.ClientCredentialLabel)
+		a.ProxyUser, a.RemoteAddr, a.TargetHost, a.TargetPort, a.EventType, a.Detail, a.ExitStatus, boolToInt(a.Truncated), a.ClientCredentialLabel)
 	return err
 }
 
@@ -748,16 +748,16 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-func (s *Store) ListAuditLogs(limit int, loginName string) ([]AuditLog, error) {
+func (s *Store) ListAuditLogs(limit int, proxyUser string) ([]AuditLog, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	query := `SELECT id, ts, login_name, remote_addr, target_host, target_port, event_type, detail, exit_status, truncated, client_credential_label
+	query := `SELECT id, ts, proxy_user, remote_addr, target_host, target_port, event_type, detail, exit_status, truncated, client_credential_label
 		FROM audit_logs`
 	args := []any{}
-	if loginName != "" {
-		query += ` WHERE login_name = ?`
-		args = append(args, loginName)
+	if proxyUser != "" {
+		query += ` WHERE proxy_user = ?`
+		args = append(args, proxyUser)
 	}
 	query += ` ORDER BY id DESC LIMIT ?`
 	args = append(args, limit)
@@ -774,7 +774,7 @@ func (s *Store) ListAuditLogs(limit int, loginName string) ([]AuditLog, error) {
 		var exitStatus sql.NullInt64
 		var truncated int
 		var clientCredentialLabel sql.NullString
-		if err := rows.Scan(&a.ID, &a.Ts, &a.LoginName, &a.RemoteAddr, &a.TargetHost, &a.TargetPort,
+		if err := rows.Scan(&a.ID, &a.Ts, &a.ProxyUser, &a.RemoteAddr, &a.TargetHost, &a.TargetPort,
 			&a.EventType, &a.Detail, &exitStatus, &truncated, &clientCredentialLabel); err != nil {
 			return nil, err
 		}

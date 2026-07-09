@@ -202,8 +202,8 @@ func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &server) {
 		return
 	}
-	if server.LoginName == "" || server.TargetHost == "" {
-		writeError(w, http.StatusBadRequest, "login_name / target_host 不能为空")
+	if server.ProxyUser == "" || server.TargetHost == "" {
+		writeError(w, http.StatusBadRequest, "proxy_user / target_host 不能为空")
 		return
 	}
 	if server.TargetPort == 0 {
@@ -257,8 +257,8 @@ func (a *API) handleSetServerEnabled(w http.ResponseWriter, r *http.Request) {
 }
 
 // runServerTest 连一次目标机器,把结果(成功/失败 + 错误信息)写回数据库,返回更新后的服务器(不含密码/私钥)。
-func (a *API) runServerTest(loginName string) (*ServerRecord, error) {
-	server, err := a.store.GetServer(loginName)
+func (a *API) runServerTest(proxyUser string) (*ServerRecord, error) {
+	server, err := a.store.GetServer(proxyUser)
 	if err != nil {
 		return nil, fmt.Errorf("服务器不存在")
 	}
@@ -267,10 +267,10 @@ func (a *API) runServerTest(loginName string) (*ServerRecord, error) {
 	if testErr != nil {
 		msg = testErr.Error()
 	}
-	if err := a.store.UpdateServerTestResult(loginName, testErr == nil, msg); err != nil {
+	if err := a.store.UpdateServerTestResult(proxyUser, testErr == nil, msg); err != nil {
 		return nil, err
 	}
-	updated, err := a.store.GetServer(loginName)
+	updated, err := a.store.GetServer(proxyUser)
 	if err != nil {
 		return nil, err
 	}
@@ -297,12 +297,12 @@ func (a *API) handleTestAllServers(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	for _, server := range servers {
 		wg.Add(1)
-		go func(loginName string) {
+		go func(proxyUser string) {
 			defer wg.Done()
-			if _, err := a.runServerTest(loginName); err != nil {
-				log.Printf("测试服务器 %q 失败: %v", loginName, err)
+			if _, err := a.runServerTest(proxyUser); err != nil {
+				log.Printf("测试服务器 %q 失败: %v", proxyUser, err)
 			}
-		}(server.LoginName)
+		}(server.ProxyUser)
 	}
 	wg.Wait()
 
@@ -366,7 +366,7 @@ func (a *API) handleCreateServerCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := a.store.SetServerCredentialServers(id, body.LoginNames); err != nil {
+	if err := a.store.SetServerCredentialServers(id, body.ProxyUsers); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -400,7 +400,7 @@ func (a *API) handleUpdateServerCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := a.store.SetServerCredentialServers(id, body.LoginNames); err != nil {
+	if err := a.store.SetServerCredentialServers(id, body.ProxyUsers); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -459,7 +459,7 @@ func (a *API) handleCreateClientCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	id, err := a.store.CreateClientCredential(body, body.LoginNames)
+	id, err := a.store.CreateClientCredential(body, body.ProxyUsers)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -485,7 +485,7 @@ func (a *API) handleUpdateClientCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.store.UpdateClientCredential(id, body, body.LoginNames); err != nil {
+	if err := a.store.UpdateClientCredential(id, body, body.ProxyUsers); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -532,8 +532,8 @@ func (a *API) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleListAudit(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	loginName := r.URL.Query().Get("login_name")
-	logs, err := a.store.ListAuditLogs(limit, loginName)
+	proxyUser := r.URL.Query().Get("proxy_user")
+	logs, err := a.store.ListAuditLogs(limit, proxyUser)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -7,7 +7,7 @@ const emptyCredential: Omit<ClientCredential, "id" | "has_password"> = {
   auth_type: "public_key",
   public_key: "",
   password: "",
-  login_names: [],
+  proxy_users: [],
 };
 
 // extractLabelFromPublicKey 取公钥内容里最后一段(comment,比如 "root@vultr")作为默认名称建议。
@@ -60,15 +60,15 @@ export function ClientCredentialsPage() {
     setEditing({ ...editing, label: value });
   }
 
-  function toggleServer(loginName: string) {
+  function toggleServer(proxyUser: string) {
     if (!editing) return;
-    const set = new Set(editing.login_names);
-    if (set.has(loginName)) {
-      set.delete(loginName);
+    const set = new Set(editing.proxy_users);
+    if (set.has(proxyUser)) {
+      set.delete(proxyUser);
     } else {
-      set.add(loginName);
+      set.add(proxyUser);
     }
-    setEditing({ ...editing, login_names: Array.from(set) });
+    setEditing({ ...editing, proxy_users: Array.from(set) });
   }
 
   async function save() {
@@ -138,7 +138,7 @@ export function ClientCredentialsPage() {
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  <ChipList items={c.login_names} emptyText="未关联任何服务器" />
+                  <ChipList items={c.proxy_users} emptyText="未关联任何服务器" />
                 </td>
                 <td className="px-4 py-2 text-right">
                   <button onClick={() => startEdit(c)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
@@ -231,13 +231,13 @@ export function ClientCredentialsPage() {
                   <p className="text-sm text-slate-400">还没有配置任何服务器,先去"服务器"页面添加</p>
                 )}
                 {servers.map((r) => (
-                  <label key={r.login_name} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <label key={r.proxy_user} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                     <input
                       type="checkbox"
-                      checked={editing.login_names.includes(r.login_name)}
-                      onChange={() => toggleServer(r.login_name)}
+                      checked={editing.proxy_users.includes(r.proxy_user)}
+                      onChange={() => toggleServer(r.proxy_user)}
                     />
-                    <span className="font-mono">{r.login_name}</span>
+                    <span className="font-mono">{r.proxy_user}</span>
                     <span className="text-xs text-slate-400">
                       ({r.target_host}:{r.target_port})
                     </span>

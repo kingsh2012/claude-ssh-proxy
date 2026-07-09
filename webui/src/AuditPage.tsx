@@ -3,12 +3,12 @@ import { api, type AuditLog } from "./api";
 
 export function AuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [loginName, setLoginName] = useState("");
+  const [proxyUser, setProxyUser] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   async function load() {
-    setLogs((await api.listAudit(200, loginName)) ?? []);
+    setLogs((await api.listAudit(200, proxyUser)) ?? []);
   }
 
   async function refresh() {
@@ -25,7 +25,7 @@ export function AuditPage() {
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loginName]);
+  }, [proxyUser]);
 
   return (
     <div>
@@ -35,8 +35,8 @@ export function AuditPage() {
           <input
             className="input max-w-xs"
             placeholder="按代理登录名过滤"
-            value={loginName}
-            onChange={(e) => setLoginName(e.target.value)}
+            value={proxyUser}
+            onChange={(e) => setProxyUser(e.target.value)}
           />
           <button
             onClick={refresh}
@@ -56,7 +56,7 @@ export function AuditPage() {
               onClick={() => setExpanded(expanded === l.id ? null : l.id)}
             >
               <span className="text-xs text-slate-400">{new Date(l.ts).toLocaleString()}</span>
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs dark:bg-slate-800">{l.login_name}</span>
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs dark:bg-slate-800">{l.proxy_user}</span>
               {l.client_credential_label && (
                 <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800">
                   {l.client_credential_label}

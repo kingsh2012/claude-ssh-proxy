@@ -96,13 +96,13 @@ go build -o claude-ssh-proxy .
 批量添加服务器可以用"导入"功能:点"导入"弹出一个 CSV 粘贴框,格式是:
 
 ```
-login_name,target_host,target_port,server_credential_id,client_credential_id
+proxy_user,target_host,target_port,server_credential_id,client_credential_id
 srv1,192.168.1.2,,1,1;2
 srv2,192.168.1.3,22,,3
 srv3,192.168.1.4,,,
 ```
 
-`login_name` 是唯一键,已存在就覆盖更新,不存在就新增;`target_port`/`server_credential_id`/`client_credential_id` 留空分别默认 22、不关联服务器凭据、不关联客户端凭据;`client_credential_id` 一个格子里可以用分号分隔关联多个客户端凭据。服务器凭据/客户端凭据的 ID 在各自页面的"ID"列能看到。提交前会先校验格式(表头、必填、端口范围、引用的 id 是否存在),校验不通过不会调用任何接口;校验通过后逐行导入,单独一行失败不影响其他行,结果里会列出每行是新增/更新/失败。
+`proxy_user` 是唯一键,已存在就覆盖更新,不存在就新增;`target_port`/`server_credential_id`/`client_credential_id` 留空分别默认 22、不关联服务器凭据、不关联客户端凭据;`client_credential_id` 一个格子里可以用分号分隔关联多个客户端凭据。服务器凭据/客户端凭据的 ID 在各自页面的"ID"列能看到。提交前会先校验格式(表头、必填、端口范围、引用的 id 是否存在),校验不通过不会调用任何接口;校验通过后逐行导入,单独一行失败不影响其他行,结果里会列出每行是新增/更新/失败。
 
 ### 5. 添加客户端凭据,关联到这台机器
 

@@ -41,31 +41,34 @@ export function MultiSelectDropdown({
   return (
     <div ref={rootRef} className="relative">
       <div
-        className="input flex min-h-[2.5rem] cursor-pointer flex-wrap items-center gap-1"
+        className="input flex min-h-[2.5rem] cursor-pointer items-center justify-between gap-2"
         onClick={() => setOpen((v) => !v)}
       >
-        {selected.length === 0 ? (
-          <span className="text-slate-400">{placeholder}</span>
-        ) : (
-          selected.map((o) => (
-            <span
-              key={o.id}
-              className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs whitespace-nowrap dark:bg-slate-800"
-            >
-              #{o.id} {o.label}
-              <button
-                type="button"
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggle(o.id);
-                }}
+        <div className="flex flex-1 flex-wrap items-center gap-1">
+          {selected.length === 0 ? (
+            <span className="text-slate-400">{placeholder}</span>
+          ) : (
+            selected.map((o) => (
+              <span
+                key={o.id}
+                className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs whitespace-nowrap dark:bg-slate-800"
               >
-                ×
-              </button>
-            </span>
-          ))
-        )}
+                #{o.id} {o.label}
+                <button
+                  type="button"
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggle(o.id);
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            ))
+          )}
+        </div>
+        <span className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}>▼</span>
       </div>
 
       {open && (

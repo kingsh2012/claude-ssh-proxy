@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, type ClientCredential, type ServerRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
+import { MultiSelectDropdown } from "./MultiSelectDropdown";
 import { Tooltip } from "./Tooltip";
 
 const emptyServer: ServerRecord = {
@@ -322,24 +323,17 @@ export function ServersPage() {
             </Field>
 
             <Field label="哪些客户端凭据能登录这台服务器">
-              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-slate-300 p-2 dark:border-slate-700">
-                {clientCredentials.length === 0 && (
-                  <p className="text-sm text-slate-400">还没有配置任何客户端凭据,先去"客户端凭据"页面添加</p>
-                )}
-                {clientCredentials.map((c) => (
-                  <label key={c.id} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={selectedCredentialIds.has(c.id)}
-                      onChange={() => toggleCredential(c.id)}
-                    />
-                    <span>
-                      #{c.id} {c.label}
-                    </span>
-                    <span className="text-xs text-slate-400">({c.auth_type === "public_key" ? "公钥" : "密码"})</span>
-                  </label>
-                ))}
-              </div>
+              <MultiSelectDropdown
+                options={clientCredentials.map((c) => ({
+                  id: c.id,
+                  label: c.label,
+                  sublabel: `(${c.auth_type === "public_key" ? "公钥" : "密码"})`,
+                }))}
+                selectedIds={selectedCredentialIds}
+                onToggle={toggleCredential}
+                placeholder="(未选择)"
+                emptyText='还没有配置任何客户端凭据,先去"客户端凭据"页面添加'
+              />
             </Field>
 
             {error && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>}

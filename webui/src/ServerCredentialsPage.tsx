@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, type RouteRecord, type ServerCredential } from "./api";
+import { api, ApiError, type ServerRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
 
 const emptyCredential: Omit<ServerCredential, "id"> = {
@@ -9,19 +9,19 @@ const emptyCredential: Omit<ServerCredential, "id"> = {
   auth_password: "",
   auth_private_key: "",
   auth_private_key_passphrase: "",
-  route_users: [],
+  login_names: [],
 };
 
 export function ServerCredentialsPage() {
   const [creds, setCreds] = useState<ServerCredential[]>([]);
-  const [routes, setRoutes] = useState<RouteRecord[]>([]);
+  const [servers, setServers] = useState<ServerRecord[]>([]);
   const [editing, setEditing] = useState<(Omit<ServerCredential, "id"> & { id?: number }) | null>(null);
   const [error, setError] = useState("");
 
   async function load() {
-    const [c, r] = await Promise.all([api.listServerCredentials(), api.listRoutes()]);
+    const [c, r] = await Promise.all([api.listServerCredentials(), api.listServers()]);
     setCreds(c ?? []);
-    setRoutes(r ?? []);
+    setServers(r ?? []);
   }
 
   useEffect(() => {
@@ -38,15 +38,15 @@ export function ServerCredentialsPage() {
     setError("");
   }
 
-  function toggleRoute(routeUser: string) {
+  function toggleServer(loginName: string) {
     if (!editing) return;
-    const set = new Set(editing.route_users);
-    if (set.has(routeUser)) {
-      set.delete(routeUser);
+    const set = new Set(editing.login_names);
+    if (set.has(loginName)) {
+      set.delete(loginName);
     } else {
-      set.add(routeUser);
+      set.add(loginName);
     }
-    setEditing({ ...editing, route_users: Array.from(set) });
+    setEditing({ ...editing, login_names: Array.from(set) });
   }
 
   async function save() {
@@ -56,7 +56,7 @@ export function ServerCredentialsPage() {
     // 取消勾选的服务器会失去这份凭据、认证方式变空,需要之后单独重新设置,先提醒一下。
     if (editing.id != null) {
       const before = creds.find((c) => c.id === editing.id);
-      const removed = (before?.route_users ?? []).filter((ru) => !editing.route_users.includes(ru));
+      const removed = (before?.login_names ?? []).filter((ru) => !editing.login_names.includes(ru));
       if (removed.length > 0) {
         const ok = confirm(
           `取消勾选后,${removed.join(", ")} 会失去这份凭据,认证方式变空,需要单独重新设置密码/私钥或换一份凭据,确定继续吗?`
@@ -124,7 +124,7 @@ export function ServerCredentialsPage() {
                 <td className="px-4 py-2 font-mono">{c.target_user}</td>
                 <td className="px-4 py-2">{c.auth_type === "password" ? "密码" : "私钥"}</td>
                 <td className="px-4 py-2">
-                  <ChipList items={c.route_users} emptyText="暂无服务器使用" />
+                  <ChipList items={c.login_names} emptyText="暂无服务器使用" />
                 </td>
                 <td className="px-4 py-2 text-right">
                   <button onClick={() => startEdit(c)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
@@ -224,17 +224,17 @@ export function ServerCredentialsPage() {
             <div className="mb-3">
               <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">哪些服务器使用这份凭据</label>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-slate-300 p-2 dark:border-slate-700">
-                {routes.length === 0 && (
+                {servers.length === 0 && (
                   <p className="text-sm text-slate-400">还没有配置任何服务器,先去"服务器"页面添加</p>
                 )}
-                {routes.map((r) => (
-                  <label key={r.route_user} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                {servers.map((r) => (
+                  <label key={r.login_name} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                     <input
                       type="checkbox"
-                      checked={editing.route_users.includes(r.route_user)}
-                      onChange={() => toggleRoute(r.route_user)}
+                      checked={editing.login_names.includes(r.login_name)}
+                      onChange={() => toggleServer(r.login_name)}
                     />
-                    <span className="font-mono">{r.route_user}</span>
+                    <span className="font-mono">{r.login_name}</span>
                     <span className="text-xs text-slate-400">
                       ({r.target_host}:{r.target_port})
                     </span>

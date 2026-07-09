@@ -1,8 +1,8 @@
 export type AuthType = "password" | "private_key";
 export type ClientAuthType = "public_key" | "password";
 
-export interface RouteRecord {
-  route_user: string;
+export interface ServerRecord {
+  login_name: string;
   target_host: string;
   target_port: number;
 
@@ -29,7 +29,7 @@ export interface ClientCredential {
   public_key?: string;
   password?: string; // 明文,只在设置/修改密码时非空传入
   has_password: boolean;
-  route_users: string[];
+  login_names: string[];
 }
 
 export interface ServerCredential {
@@ -40,13 +40,13 @@ export interface ServerCredential {
   auth_password?: string;
   auth_private_key?: string;
   auth_private_key_passphrase?: string;
-  route_users: string[];
+  login_names: string[];
 }
 
 export interface AuditLog {
   id: number;
   ts: string;
-  route_user: string;
+  login_name: string;
   remote_addr: string;
   target_host: string;
   target_port: number;
@@ -104,21 +104,21 @@ export const api = {
       body: JSON.stringify({ OldPassword: oldPassword, NewPassword: newPassword }),
     }),
 
-  listRoutes: () => request<RouteRecord[]>("/api/routes"),
-  upsertRoute: (route: RouteRecord) =>
-    request<{ ok: boolean }>("/api/routes", {
+  listServers: () => request<ServerRecord[]>("/api/servers"),
+  upsertServer: (server: ServerRecord) =>
+    request<{ ok: boolean }>("/api/servers", {
       method: "POST",
-      body: JSON.stringify(route),
+      body: JSON.stringify(server),
     }),
-  deleteRoute: (routeUser: string) =>
-    request<{ ok: boolean }>(`/api/routes/${encodeURIComponent(routeUser)}`, {
+  deleteServer: (loginName: string) =>
+    request<{ ok: boolean }>(`/api/servers/${encodeURIComponent(loginName)}`, {
       method: "DELETE",
     }),
-  testRoute: (routeUser: string) =>
-    request<RouteRecord>(`/api/routes/${encodeURIComponent(routeUser)}/test`, { method: "POST" }),
-  testAllRoutes: () => request<RouteRecord[]>("/api/routes/test-all", { method: "POST" }),
-  setRouteEnabled: (routeUser: string, enabled: boolean) =>
-    request<RouteRecord>(`/api/routes/${encodeURIComponent(routeUser)}/enabled`, {
+  testServer: (loginName: string) =>
+    request<ServerRecord>(`/api/servers/${encodeURIComponent(loginName)}/test`, { method: "POST" }),
+  testAllServers: () => request<ServerRecord[]>("/api/servers/test-all", { method: "POST" }),
+  setServerEnabled: (loginName: string, enabled: boolean) =>
+    request<ServerRecord>(`/api/servers/${encodeURIComponent(loginName)}/enabled`, {
       method: "PUT",
       body: JSON.stringify({ enabled }),
     }),
@@ -158,9 +158,9 @@ export const api = {
       body: JSON.stringify({ listen_addr: listenAddr }),
     }),
 
-  listAudit: (limit = 200, routeUser = "") =>
+  listAudit: (limit = 200, loginName = "") =>
     request<AuditLog[]>(
-      `/api/audit?limit=${limit}${routeUser ? `&route_user=${encodeURIComponent(routeUser)}` : ""}`
+      `/api/audit?limit=${limit}${loginName ? `&login_name=${encodeURIComponent(loginName)}` : ""}`
     ),
 };
 

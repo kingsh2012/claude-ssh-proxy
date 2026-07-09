@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, type ClientCredential, type RouteRecord, type ServerCredential } from "./api";
+import { api, ApiError, type ClientCredential, type ServerRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
 import { Tooltip } from "./Tooltip";
 
-const emptyRoute: RouteRecord = {
-  route_user: "",
+const emptyServer: ServerRecord = {
+  login_name: "",
   target_host: "",
   target_port: 22,
   enabled: true,
@@ -14,49 +14,49 @@ const emptyRoute: RouteRecord = {
   server_credential_id: null,
 };
 
-// reconcileClientCredentials 把"这个别名应该关联哪些客户端凭据"落地成实际的 API 调用:
-// 对比每份客户端凭据当前的 route_users 和期望的勾选结果,只在有变化的凭据上调用更新接口。
+// reconcileClientCredentials 把"这个代理登录名应该关联哪些客户端凭据"落地成实际的 API 调用:
+// 对比每份客户端凭据当前的 login_names 和期望的勾选结果,只在有变化的凭据上调用更新接口。
 // save() 和 CSV 导入(逐行调用)都用这个函数,保证行为一致。
 //
-// 注意:成功调用后会把 c.route_users 就地更新——批量导入时如果好几行服务器共用同一份
+// 注意:成功调用后会把 c.login_names 就地更新——批量导入时如果好几行服务器共用同一份
 // 客户端凭据,必须让后面几行看到前面几行刚写入的关联,否则会互相覆盖,只有最后一行生效。
 async function reconcileClientCredentials(
   clientCredentials: ClientCredential[],
-  routeUser: string,
+  loginName: string,
   selectedIds: Set<number>
 ) {
   for (const c of clientCredentials) {
     const shouldHave = selectedIds.has(c.id);
-    const currentlyHas = c.route_users.includes(routeUser);
+    const currentlyHas = c.login_names.includes(loginName);
     if (shouldHave === currentlyHas) continue;
     const { id, has_password, ...rest } = c;
     void id;
     void has_password;
-    const routeUsers = shouldHave ? [...c.route_users, routeUser] : c.route_users.filter((ru) => ru !== routeUser);
-    await api.updateClientCredential(c.id, { ...rest, route_users: routeUsers });
-    c.route_users = routeUsers;
+    const loginNames = shouldHave ? [...c.login_names, loginName] : c.login_names.filter((ln) => ln !== loginName);
+    await api.updateClientCredential(c.id, { ...rest, login_names: loginNames });
+    c.login_names = loginNames;
   }
 }
 
-export function RoutesPage() {
-  const [routes, setRoutes] = useState<RouteRecord[]>([]);
+export function ServersPage() {
+  const [servers, setServers] = useState<ServerRecord[]>([]);
   const [serverCredentials, setServerCredentials] = useState<ServerCredential[]>([]);
   const [clientCredentials, setClientCredentials] = useState<ClientCredential[]>([]);
-  const [editing, setEditing] = useState<RouteRecord | null>(null);
+  const [editing, setEditing] = useState<ServerRecord | null>(null);
   const [selectedCredentialIds, setSelectedCredentialIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [isNew, setIsNew] = useState(false);
-  const [testingRoute, setTestingRoute] = useState<string | null>(null);
+  const [testingServer, setTestingServer] = useState<string | null>(null);
   const [testingAll, setTestingAll] = useState(false);
   const [importing, setImporting] = useState(false);
 
   async function load() {
-    const [r, sc, cc] = await Promise.all([
-      api.listRoutes(),
+    const [s, sc, cc] = await Promise.all([
+      api.listServers(),
       api.listServerCredentials(),
       api.listClientCredentials(),
     ]);
-    setRoutes(r ?? []);
+    setServers(s ?? []);
     setServerCredentials(sc ?? []);
     setClientCredentials(cc ?? []);
   }
@@ -65,23 +65,23 @@ export function RoutesPage() {
     load();
   }, []);
 
-  async function testOne(routeUser: string) {
-    setTestingRoute(routeUser);
+  async function testOne(loginName: string) {
+    setTestingServer(loginName);
     try {
-      const updated = await api.testRoute(routeUser);
-      setRoutes((prev) => prev.map((r) => (r.route_user === routeUser ? updated : r)));
+      const updated = await api.testServer(loginName);
+      setServers((prev) => prev.map((s) => (s.login_name === loginName ? updated : s)));
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "测试失败");
     } finally {
-      setTestingRoute(null);
+      setTestingServer(null);
     }
   }
 
   async function testAll() {
     setTestingAll(true);
     try {
-      const updated = await api.testAllRoutes();
-      setRoutes(updated ?? []);
+      const updated = await api.testAllServers();
+      setServers(updated ?? []);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "测试失败");
     } finally {
@@ -89,36 +89,36 @@ export function RoutesPage() {
     }
   }
 
-  async function toggleEnabled(r: RouteRecord) {
+  async function toggleEnabled(s: ServerRecord) {
     try {
-      const updated = await api.setRouteEnabled(r.route_user, !r.enabled);
-      setRoutes((prev) => prev.map((x) => (x.route_user === r.route_user ? updated : x)));
+      const updated = await api.setServerEnabled(s.login_name, !s.enabled);
+      setServers((prev) => prev.map((x) => (x.login_name === s.login_name ? updated : x)));
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "操作失败");
     }
   }
 
-  function credentialIdsForRoute(routeUser: string): Set<number> {
-    return new Set(clientCredentials.filter((c) => c.route_users.includes(routeUser)).map((c) => c.id));
+  function credentialIdsForServer(loginName: string): Set<number> {
+    return new Set(clientCredentials.filter((c) => c.login_names.includes(loginName)).map((c) => c.id));
   }
 
   function startCreate() {
-    setEditing({ ...emptyRoute });
+    setEditing({ ...emptyServer });
     setSelectedCredentialIds(new Set());
     setIsNew(true);
     setError("");
   }
 
-  function startEdit(r: RouteRecord) {
-    setEditing({ ...r });
-    setSelectedCredentialIds(credentialIdsForRoute(r.route_user));
+  function startEdit(s: ServerRecord) {
+    setEditing({ ...s });
+    setSelectedCredentialIds(credentialIdsForServer(s.login_name));
     setIsNew(false);
     setError("");
   }
 
-  function duplicate(r: RouteRecord) {
-    setEditing({ ...r, route_user: "" });
-    setSelectedCredentialIds(credentialIdsForRoute(r.route_user));
+  function duplicate(s: ServerRecord) {
+    setEditing({ ...s, login_name: "" });
+    setSelectedCredentialIds(credentialIdsForServer(s.login_name));
     setIsNew(true);
     setError("");
   }
@@ -139,8 +139,8 @@ export function RoutesPage() {
     if (!editing) return;
     setError("");
     try {
-      await api.upsertRoute(editing);
-      await reconcileClientCredentials(clientCredentials, editing.route_user, selectedCredentialIds);
+      await api.upsertServer(editing);
+      await reconcileClientCredentials(clientCredentials, editing.login_name, selectedCredentialIds);
       setEditing(null);
       await load();
     } catch (err) {
@@ -148,20 +148,20 @@ export function RoutesPage() {
     }
   }
 
-  async function remove(routeUser: string) {
-    if (!confirm(`确定删除服务器 ${routeUser} 吗?`)) return;
-    await api.deleteRoute(routeUser);
+  async function remove(loginName: string) {
+    if (!confirm(`确定删除服务器 ${loginName} 吗?`)) return;
+    await api.deleteServer(loginName);
     await load();
   }
 
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">后端服务器</h2>
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">服务器</h2>
         <div className="flex gap-2">
           <button
             onClick={testAll}
-            disabled={testingAll || routes.length === 0}
+            disabled={testingAll || servers.length === 0}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             {testingAll ? "测试中..." : "测试所有服务器连接"}
@@ -199,61 +199,61 @@ export function RoutesPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {routes.map((r) => (
-              <tr key={r.route_user} className={`text-slate-800 dark:text-slate-200 ${r.enabled ? "" : "opacity-60"}`}>
-                <td className="px-4 py-2 font-mono">{r.route_user}</td>
+            {servers.map((s) => (
+              <tr key={s.login_name} className={`text-slate-800 dark:text-slate-200 ${s.enabled ? "" : "opacity-60"}`}>
+                <td className="px-4 py-2 font-mono">{s.login_name}</td>
                 <td className="px-4 py-2 font-mono">
-                  {r.target_host}:{r.target_port}
+                  {s.target_host}:{s.target_port}
                 </td>
                 <td className="px-4 py-2">
-                  {r.enabled ? (
+                  {s.enabled ? (
                     <span className="text-emerald-600 dark:text-emerald-400">已启用</span>
                   ) : (
                     <span className="text-slate-400">已禁用</span>
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  <TestStatus route={r} />
+                  <TestStatus server={s} />
                 </td>
                 <td className="px-4 py-2">
-                  {r.server_credential_id != null ? (
+                  {s.server_credential_id != null ? (
                     <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-xs text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
-                      {r.server_credential_label}({r.target_user})
+                      {s.server_credential_label}({s.target_user})
                     </span>
                   ) : (
                     <span className="text-slate-400">未设置</span>
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  <ChipList items={r.client_credential_labels ?? []} emptyText="无" />
+                  <ChipList items={s.client_credential_labels ?? []} emptyText="无" />
                 </td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
                   <button
-                    onClick={() => toggleEnabled(r)}
+                    onClick={() => toggleEnabled(s)}
                     className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400"
                   >
-                    {r.enabled ? "禁用" : "启用"}
+                    {s.enabled ? "禁用" : "启用"}
                   </button>
                   <button
-                    onClick={() => testOne(r.route_user)}
-                    disabled={testingRoute === r.route_user || testingAll}
+                    onClick={() => testOne(s.login_name)}
+                    disabled={testingServer === s.login_name || testingAll}
                     className="mr-3 text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
                   >
-                    {testingRoute === r.route_user ? "测试中..." : "测试连接"}
+                    {testingServer === s.login_name ? "测试中..." : "测试连接"}
                   </button>
-                  <button onClick={() => duplicate(r)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
+                  <button onClick={() => duplicate(s)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
                     复制
                   </button>
-                  <button onClick={() => startEdit(r)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
+                  <button onClick={() => startEdit(s)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
                     编辑
                   </button>
-                  <button onClick={() => remove(r.route_user)} className="text-red-600 hover:underline dark:text-red-400">
+                  <button onClick={() => remove(s.login_name)} className="text-red-600 hover:underline dark:text-red-400">
                     删除
                   </button>
                 </td>
               </tr>
             ))}
-            {routes.length === 0 && (
+            {servers.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                   还没有配置任何服务器
@@ -268,15 +268,15 @@ export function RoutesPage() {
         <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-slate-950">
             <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
-              {isNew ? "添加后端服务器" : `编辑 ${editing.route_user}`}
+              {isNew ? "添加服务器" : `编辑 ${editing.login_name}`}
             </h3>
 
             <Field label="代理登录名(唯一)">
               <input
                 disabled={!isNew}
                 className="input"
-                value={editing.route_user}
-                onChange={(e) => setEditing({ ...editing, route_user: e.target.value })}
+                value={editing.login_name}
+                onChange={(e) => setEditing({ ...editing, login_name: e.target.value })}
               />
             </Field>
 
@@ -364,7 +364,7 @@ export function RoutesPage() {
 
       {importing && (
         <ImportModal
-          routes={routes}
+          servers={servers}
           serverCredentials={serverCredentials}
           clientCredentials={clientCredentials}
           onClose={() => setImporting(false)}
@@ -384,14 +384,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function TestStatus({ route }: { route: RouteRecord }) {
-  if (!route.last_test_at || route.last_test_ok === null) {
+function TestStatus({ server }: { server: ServerRecord }) {
+  if (!server.last_test_at || server.last_test_ok === null) {
     return <span className="text-xs text-slate-400">尚未测试</span>;
   }
 
-  const time = new Date(route.last_test_at).toLocaleString();
+  const time = new Date(server.last_test_at).toLocaleString();
 
-  if (route.last_test_ok) {
+  if (server.last_test_ok) {
     return (
       <div className="text-xs">
         <span className="text-emerald-600 dark:text-emerald-400">成功</span>
@@ -402,7 +402,7 @@ function TestStatus({ route }: { route: RouteRecord }) {
 
   return (
     <div className="text-xs">
-      <Tooltip text={route.last_test_error || "未知错误"}>
+      <Tooltip text={server.last_test_error || "未知错误"}>
         <span className="cursor-help text-red-600 underline decoration-dotted dark:text-red-400">失败</span>
       </Tooltip>
       <div className="text-slate-400">{time}</div>
@@ -410,11 +410,11 @@ function TestStatus({ route }: { route: RouteRecord }) {
   );
 }
 
-const IMPORT_HEADER = "route_user,target_host,target_port,server_credential_id,client_credential_id";
+const IMPORT_HEADER = "login_name,target_host,target_port,server_credential_id,client_credential_id";
 
 interface ParsedImportRow {
   line: number; // 1-based,含表头
-  route_user: string;
+  login_name: string;
   target_host: string;
   target_port: number;
   server_credential_id: number | null;
@@ -423,7 +423,7 @@ interface ParsedImportRow {
 
 interface ImportRowResult {
   line: number;
-  route_user: string;
+  login_name: string;
   ok: boolean;
   message: string;
 }
@@ -457,10 +457,10 @@ function parseImportCSV(
       errors.push(`第 ${lineNo} 行:应为 5 列,实际 ${cols.length} 列`);
       continue;
     }
-    const [routeUserRaw, targetHostRaw, targetPortRaw, serverCredRaw, clientCredRaw] = cols.map((c) => c.trim());
+    const [loginNameRaw, targetHostRaw, targetPortRaw, serverCredRaw, clientCredRaw] = cols.map((c) => c.trim());
 
-    if (!routeUserRaw) {
-      errors.push(`第 ${lineNo} 行:route_user 不能为空`);
+    if (!loginNameRaw) {
+      errors.push(`第 ${lineNo} 行:login_name 不能为空`);
     }
     if (!targetHostRaw) {
       errors.push(`第 ${lineNo} 行:target_host 不能为空`);
@@ -502,7 +502,7 @@ function parseImportCSV(
 
     rows.push({
       line: lineNo,
-      route_user: routeUserRaw,
+      login_name: loginNameRaw,
       target_host: targetHostRaw,
       target_port: targetPort,
       server_credential_id: serverCredentialId,
@@ -514,13 +514,13 @@ function parseImportCSV(
 }
 
 function ImportModal({
-  routes,
+  servers,
   serverCredentials,
   clientCredentials,
   onClose,
   onDone,
 }: {
-  routes: RouteRecord[];
+  servers: ServerRecord[];
   serverCredentials: ServerCredential[];
   clientCredentials: ClientCredential[];
   onClose: () => void;
@@ -541,33 +541,33 @@ function ImportModal({
     setErrors([]);
     setRunning(true);
 
-    // 拷贝一份客户端凭据快照,让整批导入过程中的 route_users 变化在批内累积、
+    // 拷贝一份客户端凭据快照,让整批导入过程中的 login_names 变化在批内累积、
     // 又不直接改动父组件的 state(reconcileClientCredentials 会就地更新这份拷贝)。
-    const workingCredentials = clientCredentials.map((c) => ({ ...c, route_users: [...c.route_users] }));
+    const workingCredentials = clientCredentials.map((c) => ({ ...c, login_names: [...c.login_names] }));
 
-    const existingUsers = new Set(routes.map((r) => r.route_user));
+    const existingLogins = new Set(servers.map((s) => s.login_name));
     const rowResults: ImportRowResult[] = [];
     for (const row of rows) {
-      const wasExisting = existingUsers.has(row.route_user);
+      const wasExisting = existingLogins.has(row.login_name);
       try {
-        await api.upsertRoute({
-          ...emptyRoute,
-          route_user: row.route_user,
+        await api.upsertServer({
+          ...emptyServer,
+          login_name: row.login_name,
           target_host: row.target_host,
           target_port: row.target_port,
           server_credential_id: row.server_credential_id,
         });
-        await reconcileClientCredentials(workingCredentials, row.route_user, new Set(row.client_credential_ids));
+        await reconcileClientCredentials(workingCredentials, row.login_name, new Set(row.client_credential_ids));
         rowResults.push({
           line: row.line,
-          route_user: row.route_user,
+          login_name: row.login_name,
           ok: true,
           message: wasExisting ? "已更新" : "已新增",
         });
       } catch (err) {
         rowResults.push({
           line: row.line,
-          route_user: row.route_user,
+          login_name: row.login_name,
           ok: false,
           message: err instanceof ApiError ? err.message : "失败",
         });
@@ -585,7 +585,7 @@ function ImportModal({
         <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">导入服务器(CSV)</h3>
 
         <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">
-          第一行必须是表头,后面每行一台服务器。<code className="rounded bg-slate-100 px-1 dark:bg-slate-800">route_user</code>
+          第一行必须是表头,后面每行一台服务器。<code className="rounded bg-slate-100 px-1 dark:bg-slate-800">login_name</code>
           {" "}是唯一键,已存在则覆盖更新,不存在则新增。<code className="rounded bg-slate-100 px-1 dark:bg-slate-800">target_port</code>
           /<code className="rounded bg-slate-100 px-1 dark:bg-slate-800">server_credential_id</code>/
           <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">client_credential_id</code> 可以留空,分别默认
@@ -618,7 +618,7 @@ srv3,192.168.1.4,,,`}
           <div className="mt-2 max-h-48 overflow-y-auto rounded border border-slate-200 p-2 text-xs dark:border-slate-800">
             {results.map((r) => (
               <div key={r.line} className={r.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>
-                第 {r.line} 行 {r.route_user}:{r.message}
+                第 {r.line} 行 {r.login_name}:{r.message}
               </div>
             ))}
           </div>

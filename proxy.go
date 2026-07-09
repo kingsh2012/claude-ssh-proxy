@@ -96,20 +96,20 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 	}
 	defer sconn.Close()
 
-	routeName := sconn.Permissions.Extensions["route-user"]
+	loginName := sconn.Permissions.Extensions["server-user"]
 	clientCredentialLabel := sconn.Permissions.Extensions["client-credential-label"]
-	route, err := p.store.GetRoute(routeName)
+	server, err := p.store.GetServer(loginName)
 	if err != nil {
-		log.Printf("[%s] 路由 %q 不存在", remoteAddr, routeName)
+		log.Printf("[%s] 服务器 %q 不存在", remoteAddr, loginName)
 		return
 	}
 
 	log.Printf("[%s] 用户 %q 认证通过,路由到 %s@%s:%d",
-		remoteAddr, routeName, route.TargetUser, route.TargetHost, route.TargetPort)
+		remoteAddr, loginName, server.TargetUser, server.TargetHost, server.TargetPort)
 
-	client, err := dialUpstream(*route)
+	client, err := dialUpstream(*server)
 	if err != nil {
-		log.Printf("[%s] 连接后端 %s:%d 失败: %v", remoteAddr, route.TargetHost, route.TargetPort, err)
+		log.Printf("[%s] 连接后端 %s:%d 失败: %v", remoteAddr, server.TargetHost, server.TargetPort, err)
 		return
 	}
 	defer client.Close()
@@ -121,50 +121,50 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 		wg.Add(1)
 		go func(nch ssh.NewChannel) {
 			defer wg.Done()
-			p.forwardChannel(nch, client, routeName, remoteAddr, route.TargetHost, route.TargetPort, clientCredentialLabel)
+			p.forwardChannel(nch, client, loginName, remoteAddr, server.TargetHost, server.TargetPort, clientCredentialLabel)
 		}(newChan)
 	}
 	wg.Wait()
 }
 
-func dialUpstream(route RouteRecord) (*ssh.Client, error) {
-	return dialUpstreamTimeout(route, 15*time.Second)
+func dialUpstream(server ServerRecord) (*ssh.Client, error) {
+	return dialUpstreamTimeout(server, 15*time.Second)
 }
 
 // testUpstreamTimeout 用于"测试 SSH 连接"功能:比正常业务连接给一个更短的超时,
 // 避免某台机器不可达时,测试请求(尤其是"测试全部")卡太久。
 const testUpstreamTimeout = 8 * time.Second
 
-func dialUpstreamTimeout(route RouteRecord, timeout time.Duration) (*ssh.Client, error) {
+func dialUpstreamTimeout(server ServerRecord, timeout time.Duration) (*ssh.Client, error) {
 	var authMethods []ssh.AuthMethod
-	switch route.AuthType {
+	switch server.AuthType {
 	case "password":
-		authMethods = append(authMethods, ssh.Password(route.AuthPassword))
+		authMethods = append(authMethods, ssh.Password(server.AuthPassword))
 	case "private_key":
-		signer, err := parsePrivateKey(route.AuthPrivateKey, route.AuthPrivateKeyPassphrase)
+		signer, err := parsePrivateKey(server.AuthPrivateKey, server.AuthPrivateKeyPassphrase)
 		if err != nil {
 			return nil, fmt.Errorf("解析私钥失败: %w", err)
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	default:
-		return nil, fmt.Errorf("未知认证方式 %q", route.AuthType)
+		return nil, fmt.Errorf("未知认证方式 %q", server.AuthType)
 	}
 
 	clientCfg := &ssh.ClientConfig{
-		User:            route.TargetUser,
+		User:            server.TargetUser,
 		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // 内网环境使用;需要更严格校验时换成 ssh.FixedHostKey
 		Timeout:         timeout,
 	}
 
-	addr := fmt.Sprintf("%s:%d", route.TargetHost, route.TargetPort)
+	addr := fmt.Sprintf("%s:%d", server.TargetHost, server.TargetPort)
 	return ssh.Dial("tcp", addr, clientCfg)
 }
 
-// TestRoute 尝试连接一次目标机器验证账号密码/私钥是否配置正确,连上就立刻断开,
+// TestServer 尝试连接一次目标机器验证账号密码/私钥是否配置正确,连上就立刻断开,
 // 不做任何业务操作,供 Web 后台的"测试 SSH 连接"功能使用。
-func TestRoute(route RouteRecord) error {
-	client, err := dialUpstreamTimeout(route, testUpstreamTimeout)
+func TestServer(server ServerRecord) error {
+	client, err := dialUpstreamTimeout(server, testUpstreamTimeout)
 	if err != nil {
 		return err
 	}
@@ -174,7 +174,7 @@ func TestRoute(route RouteRecord) error {
 // forwardChannel 把下游(Claude 侧)发起的一个 channel 对应地在上游(真实目标机器)
 // 打开一个同类型 channel,双向转发数据和 out-of-band 请求;对 "session" 类型的
 // channel(exec/shell/subsystem)顺带记录审计日志。
-func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, routeUser, remoteAddr, targetHost string, targetPort int, clientCredentialLabel string) {
+func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, loginName, remoteAddr, targetHost string, targetPort int, clientCredentialLabel string) {
 	upChan, upReqs, err := client.OpenChannel(newChan.ChannelType(), newChan.ExtraData())
 	if err != nil {
 		if openErr, ok := err.(*ssh.OpenChannelError); ok {
@@ -194,7 +194,7 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, route
 
 	var audit *auditSession
 	if newChan.ChannelType() == "session" {
-		audit = newAuditSession(p.store, routeUser, remoteAddr, targetHost, targetPort, clientCredentialLabel)
+		audit = newAuditSession(p.store, loginName, remoteAddr, targetHost, targetPort, clientCredentialLabel)
 		defer audit.finish()
 	}
 

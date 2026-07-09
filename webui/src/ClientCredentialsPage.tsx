@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, type ClientCredential, type RouteRecord } from "./api";
+import { api, ApiError, type ClientCredential, type ServerRecord } from "./api";
 import { ChipList } from "./ChipList";
 
 const emptyCredential: Omit<ClientCredential, "id" | "has_password"> = {
@@ -7,7 +7,7 @@ const emptyCredential: Omit<ClientCredential, "id" | "has_password"> = {
   auth_type: "public_key",
   public_key: "",
   password: "",
-  route_users: [],
+  login_names: [],
 };
 
 // extractLabelFromPublicKey 取公钥内容里最后一段(comment,比如 "root@vultr")作为默认名称建议。
@@ -19,7 +19,7 @@ function extractLabelFromPublicKey(publicKey: string): string {
 
 export function ClientCredentialsPage() {
   const [creds, setCreds] = useState<ClientCredential[]>([]);
-  const [routes, setRoutes] = useState<RouteRecord[]>([]);
+  const [servers, setServers] = useState<ServerRecord[]>([]);
   const [editing, setEditing] = useState<
     (Omit<ClientCredential, "id" | "has_password"> & { id?: number; has_password?: boolean }) | null
   >(null);
@@ -27,9 +27,9 @@ export function ClientCredentialsPage() {
   const [error, setError] = useState("");
 
   async function load() {
-    const [c, r] = await Promise.all([api.listClientCredentials(), api.listRoutes()]);
+    const [c, r] = await Promise.all([api.listClientCredentials(), api.listServers()]);
     setCreds(c ?? []);
-    setRoutes(r ?? []);
+    setServers(r ?? []);
   }
 
   useEffect(() => {
@@ -60,15 +60,15 @@ export function ClientCredentialsPage() {
     setEditing({ ...editing, label: value });
   }
 
-  function toggleRoute(routeUser: string) {
+  function toggleServer(loginName: string) {
     if (!editing) return;
-    const set = new Set(editing.route_users);
-    if (set.has(routeUser)) {
-      set.delete(routeUser);
+    const set = new Set(editing.login_names);
+    if (set.has(loginName)) {
+      set.delete(loginName);
     } else {
-      set.add(routeUser);
+      set.add(loginName);
     }
-    setEditing({ ...editing, route_users: Array.from(set) });
+    setEditing({ ...editing, login_names: Array.from(set) });
   }
 
   async function save() {
@@ -138,7 +138,7 @@ export function ClientCredentialsPage() {
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  <ChipList items={c.route_users} emptyText="未关联任何服务器" />
+                  <ChipList items={c.login_names} emptyText="未关联任何服务器" />
                 </td>
                 <td className="px-4 py-2 text-right">
                   <button onClick={() => startEdit(c)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
@@ -227,17 +227,17 @@ export function ClientCredentialsPage() {
             <div className="mb-3">
               <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">这份凭据能登录哪些服务器</label>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-slate-300 p-2 dark:border-slate-700">
-                {routes.length === 0 && (
+                {servers.length === 0 && (
                   <p className="text-sm text-slate-400">还没有配置任何服务器,先去"服务器"页面添加</p>
                 )}
-                {routes.map((r) => (
-                  <label key={r.route_user} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                {servers.map((r) => (
+                  <label key={r.login_name} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                     <input
                       type="checkbox"
-                      checked={editing.route_users.includes(r.route_user)}
-                      onChange={() => toggleRoute(r.route_user)}
+                      checked={editing.login_names.includes(r.login_name)}
+                      onChange={() => toggleServer(r.login_name)}
                     />
-                    <span className="font-mono">{r.route_user}</span>
+                    <span className="font-mono">{r.login_name}</span>
                     <span className="text-xs text-slate-400">
                       ({r.target_host}:{r.target_port})
                     </span>

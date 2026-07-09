@@ -3,14 +3,14 @@ import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-do
 import { api, type MeResponse } from "./api";
 import { Login } from "./Login";
 import { ForceChangePassword } from "./ForceChangePassword";
-import { RoutesPage } from "./RoutesPage";
+import { ServersPage } from "./ServersPage";
 import { ServerCredentialsPage } from "./ServerCredentialsPage";
 import { ClientCredentialsPage } from "./ClientCredentialsPage";
 import { SettingsPage } from "./SettingsPage";
 import { AuditPage } from "./AuditPage";
 
 const NAV_ITEMS = [
-  { path: "/routes", label: "服务器" },
+  { path: "/servers", label: "服务器" },
   { path: "/server-credentials", label: "服务器凭据" },
   { path: "/client-credentials", label: "客户端凭据" },
   { path: "/settings", label: "监听设置" },
@@ -78,12 +78,12 @@ function App() {
 
         <main className="mx-auto max-w-7xl px-6 py-8">
           <Routes>
-            <Route path="/routes" element={<RoutesPage />} />
+            <Route path="/servers" element={<ServersPage />} />
             <Route path="/server-credentials" element={<ServerCredentialsPage />} />
             <Route path="/client-credentials" element={<ClientCredentialsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/audit" element={<AuditPage />} />
-            <Route path="*" element={<Navigate to="/routes" replace />} />
+            <Route path="*" element={<Navigate to="/servers" replace />} />
           </Routes>
         </main>
       </div>

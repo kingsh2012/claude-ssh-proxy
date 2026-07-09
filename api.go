@@ -29,7 +29,7 @@ func NewAPI(store *Store, proxy *Proxy) *API {
 	return &API{store: store, proxy: proxy, jwtSecret: []byte(secret)}
 }
 
-func (a *API) Routes() http.Handler {
+func (a *API) Router() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /api/login", a.handleLogin)
@@ -38,12 +38,12 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("GET /api/me", a.auth(a.handleMe))
 	mux.HandleFunc("PUT /api/admin/password", a.auth(a.handleChangePassword))
 
-	mux.HandleFunc("GET /api/routes", a.auth(a.handleListRoutes))
-	mux.HandleFunc("POST /api/routes", a.auth(a.handleUpsertRoute))
-	mux.HandleFunc("DELETE /api/routes/{user}", a.auth(a.handleDeleteRoute))
-	mux.HandleFunc("POST /api/routes/test-all", a.auth(a.handleTestAllRoutes))
-	mux.HandleFunc("POST /api/routes/{user}/test", a.auth(a.handleTestRoute))
-	mux.HandleFunc("PUT /api/routes/{user}/enabled", a.auth(a.handleSetRouteEnabled))
+	mux.HandleFunc("GET /api/servers", a.auth(a.handleListServers))
+	mux.HandleFunc("POST /api/servers", a.auth(a.handleUpsertServer))
+	mux.HandleFunc("DELETE /api/servers/{user}", a.auth(a.handleDeleteServer))
+	mux.HandleFunc("POST /api/servers/test-all", a.auth(a.handleTestAllServers))
+	mux.HandleFunc("POST /api/servers/{user}/test", a.auth(a.handleTestServer))
+	mux.HandleFunc("PUT /api/servers/{user}/enabled", a.auth(a.handleSetServerEnabled))
 
 	mux.HandleFunc("GET /api/server-credentials", a.auth(a.handleListServerCredentials))
 	mux.HandleFunc("POST /api/server-credentials", a.auth(a.handleCreateServerCredential))
@@ -183,59 +183,59 @@ func (a *API) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-func (a *API) handleListRoutes(w http.ResponseWriter, r *http.Request) {
-	routes, err := a.store.ListRoutes()
+func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
+	servers, err := a.store.ListServers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	for i := range routes {
-		routes[i].AuthPassword = ""
-		routes[i].AuthPrivateKey = ""
-		routes[i].AuthPrivateKeyPassphrase = ""
+	for i := range servers {
+		servers[i].AuthPassword = ""
+		servers[i].AuthPrivateKey = ""
+		servers[i].AuthPrivateKeyPassphrase = ""
 	}
-	writeJSON(w, routes)
+	writeJSON(w, servers)
 }
 
-func (a *API) handleUpsertRoute(w http.ResponseWriter, r *http.Request) {
-	var route RouteRecord
-	if !decodeJSON(w, r, &route) {
+func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
+	var server ServerRecord
+	if !decodeJSON(w, r, &server) {
 		return
 	}
-	if route.RouteUser == "" || route.TargetHost == "" {
-		writeError(w, http.StatusBadRequest, "route_user / target_host 不能为空")
+	if server.LoginName == "" || server.TargetHost == "" {
+		writeError(w, http.StatusBadRequest, "login_name / target_host 不能为空")
 		return
 	}
-	if route.TargetPort == 0 {
-		route.TargetPort = 22
+	if server.TargetPort == 0 {
+		server.TargetPort = 22
 	}
 
 	// 服务器的认证信息完全来自"服务器凭据",这里只要校验(如果指定了)凭据确实存在;
 	// 留空表示这条服务器暂时没有可用的认证信息,允许保存,之后再补一个凭据即可。
-	if route.ServerCredentialID != nil {
-		if _, err := a.store.GetServerCredential(*route.ServerCredentialID); err != nil {
+	if server.ServerCredentialID != nil {
+		if _, err := a.store.GetServerCredential(*server.ServerCredentialID); err != nil {
 			writeError(w, http.StatusBadRequest, "指定的服务器凭据不存在")
 			return
 		}
 	}
 
-	if err := a.store.UpsertRoute(route); err != nil {
+	if err := a.store.UpsertServer(server); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-func (a *API) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	user := r.PathValue("user")
-	if err := a.store.DeleteRoute(user); err != nil {
+	if err := a.store.DeleteServer(user); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-func (a *API) handleSetRouteEnabled(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleSetServerEnabled(w http.ResponseWriter, r *http.Request) {
 	user := r.PathValue("user")
 	var body struct {
 		Enabled bool `json:"enabled"`
@@ -243,11 +243,11 @@ func (a *API) handleSetRouteEnabled(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if err := a.store.SetRouteEnabled(user, body.Enabled); err != nil {
+	if err := a.store.SetServerEnabled(user, body.Enabled); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	updated, err := a.store.GetRoute(user)
+	updated, err := a.store.GetServer(user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -256,21 +256,21 @@ func (a *API) handleSetRouteEnabled(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, updated)
 }
 
-// runRouteTest 连一次目标机器,把结果(成功/失败 + 错误信息)写回数据库,返回更新后的路由(不含密码/私钥)。
-func (a *API) runRouteTest(routeUser string) (*RouteRecord, error) {
-	route, err := a.store.GetRoute(routeUser)
+// runServerTest 连一次目标机器,把结果(成功/失败 + 错误信息)写回数据库,返回更新后的服务器(不含密码/私钥)。
+func (a *API) runServerTest(loginName string) (*ServerRecord, error) {
+	server, err := a.store.GetServer(loginName)
 	if err != nil {
-		return nil, fmt.Errorf("路由不存在")
+		return nil, fmt.Errorf("服务器不存在")
 	}
-	testErr := TestRoute(*route)
+	testErr := TestServer(*server)
 	msg := ""
 	if testErr != nil {
 		msg = testErr.Error()
 	}
-	if err := a.store.UpdateRouteTestResult(routeUser, testErr == nil, msg); err != nil {
+	if err := a.store.UpdateServerTestResult(loginName, testErr == nil, msg); err != nil {
 		return nil, err
 	}
-	updated, err := a.store.GetRoute(routeUser)
+	updated, err := a.store.GetServer(loginName)
 	if err != nil {
 		return nil, err
 	}
@@ -278,8 +278,8 @@ func (a *API) runRouteTest(routeUser string) (*RouteRecord, error) {
 	return updated, nil
 }
 
-func (a *API) handleTestRoute(w http.ResponseWriter, r *http.Request) {
-	updated, err := a.runRouteTest(r.PathValue("user"))
+func (a *API) handleTestServer(w http.ResponseWriter, r *http.Request) {
+	updated, err := a.runServerTest(r.PathValue("user"))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -287,26 +287,26 @@ func (a *API) handleTestRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, updated)
 }
 
-func (a *API) handleTestAllRoutes(w http.ResponseWriter, r *http.Request) {
-	routes, err := a.store.ListRoutes()
+func (a *API) handleTestAllServers(w http.ResponseWriter, r *http.Request) {
+	servers, err := a.store.ListServers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	var wg sync.WaitGroup
-	for _, route := range routes {
+	for _, server := range servers {
 		wg.Add(1)
-		go func(routeUser string) {
+		go func(loginName string) {
 			defer wg.Done()
-			if _, err := a.runRouteTest(routeUser); err != nil {
-				log.Printf("测试路由 %q 失败: %v", routeUser, err)
+			if _, err := a.runServerTest(loginName); err != nil {
+				log.Printf("测试服务器 %q 失败: %v", loginName, err)
 			}
-		}(route.RouteUser)
+		}(server.LoginName)
 	}
 	wg.Wait()
 
-	updated, err := a.store.ListRoutes()
+	updated, err := a.store.ListServers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -366,7 +366,7 @@ func (a *API) handleCreateServerCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := a.store.SetServerCredentialRoutes(id, body.RouteUsers); err != nil {
+	if err := a.store.SetServerCredentialServers(id, body.LoginNames); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -400,7 +400,7 @@ func (a *API) handleUpdateServerCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := a.store.SetServerCredentialRoutes(id, body.RouteUsers); err != nil {
+	if err := a.store.SetServerCredentialServers(id, body.LoginNames); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -459,7 +459,7 @@ func (a *API) handleCreateClientCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	id, err := a.store.CreateClientCredential(body, body.RouteUsers)
+	id, err := a.store.CreateClientCredential(body, body.LoginNames)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -485,7 +485,7 @@ func (a *API) handleUpdateClientCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.store.UpdateClientCredential(id, body, body.RouteUsers); err != nil {
+	if err := a.store.UpdateClientCredential(id, body, body.LoginNames); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -532,8 +532,8 @@ func (a *API) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleListAudit(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	routeUser := r.URL.Query().Get("route_user")
-	logs, err := a.store.ListAuditLogs(limit, routeUser)
+	loginName := r.URL.Query().Get("login_name")
+	logs, err := a.store.ListAuditLogs(limit, loginName)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -8,16 +8,16 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// buildPublicKeyCallback 每次认证尝试都查库:根据登录用户名找到路由(必须存在且启用),
+// buildPublicKeyCallback 每次认证尝试都查库:根据登录用户名找到服务器(必须存在且启用),
 // 再看关联到这台服务器的客户端凭据(client_credentials,多对多关系)里有没有公钥类型匹配的。
 func buildPublicKeyCallback(store *Store) func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 	return func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 		user := conn.User()
-		route, err := store.GetRoute(user)
-		if err != nil || !route.Enabled {
+		server, err := store.GetServer(user)
+		if err != nil || !server.Enabled {
 			return nil, fmt.Errorf("用户 %q 不可用", user)
 		}
-		creds, err := store.ListClientCredentialsForRoute(user)
+		creds, err := store.ListClientCredentialsForServer(user)
 		if err != nil {
 			return nil, fmt.Errorf("未知用户名 %q", user)
 		}
@@ -31,7 +31,7 @@ func buildPublicKeyCallback(store *Store) func(conn ssh.ConnMetadata, key ssh.Pu
 			}
 			if bytes.Equal(allowed.Marshal(), key.Marshal()) {
 				return &ssh.Permissions{
-					Extensions: map[string]string{"route-user": user, "client-credential-label": c.Label},
+					Extensions: map[string]string{"server-user": user, "client-credential-label": c.Label},
 				}, nil
 			}
 		}
@@ -40,15 +40,15 @@ func buildPublicKeyCallback(store *Store) func(conn ssh.ConnMetadata, key ssh.Pu
 }
 
 // buildPasswordCallback 是公钥认证之外的备用登录方式:关联到这台服务器的客户端凭据里,
-// 密码类型的任意一份匹配即可登录(用户名仍然决定路由到哪台目标机器)。
+// 密码类型的任意一份匹配即可登录(用户名仍然决定转发到哪台目标机器)。
 func buildPasswordCallback(store *Store) func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
 	return func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
 		user := conn.User()
-		route, err := store.GetRoute(user)
-		if err != nil || !route.Enabled {
+		server, err := store.GetServer(user)
+		if err != nil || !server.Enabled {
 			return nil, fmt.Errorf("用户 %q 不可用", user)
 		}
-		creds, err := store.ListClientCredentialsForRoute(user)
+		creds, err := store.ListClientCredentialsForServer(user)
 		if err != nil {
 			return nil, fmt.Errorf("未知用户名 %q", user)
 		}
@@ -58,7 +58,7 @@ func buildPasswordCallback(store *Store) func(conn ssh.ConnMetadata, password []
 			}
 			if bcrypt.CompareHashAndPassword([]byte(c.passwordHash), password) == nil {
 				return &ssh.Permissions{
-					Extensions: map[string]string{"route-user": user, "client-credential-label": c.Label},
+					Extensions: map[string]string{"server-user": user, "client-credential-label": c.Label},
 				}, nil
 			}
 		}

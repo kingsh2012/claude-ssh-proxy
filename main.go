@@ -54,7 +54,7 @@ func main() {
 
 	api := NewAPI(store, proxy)
 	mux := http.NewServeMux()
-	mux.Handle("/api/", api.Routes())
+	mux.Handle("/api/", api.Router())
 	mux.Handle("/", webUIHandler())
 
 	log.Printf("Web 管理后台正在监听 %s", *webAddr)

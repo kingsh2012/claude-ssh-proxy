@@ -110,7 +110,7 @@ export function ServerCredentialsPage() {
             <tr>
               <th className="px-4 py-2">ID</th>
               <th className="px-4 py-2">名称</th>
-              <th className="px-4 py-2">目标用户</th>
+              <th className="px-4 py-2">SSH登录名</th>
               <th className="px-4 py-2">认证方式</th>
               <th className="px-4 py-2">被哪些服务器使用</th>
               <th className="px-4 py-2"></th>
@@ -167,7 +167,7 @@ export function ServerCredentialsPage() {
             </div>
 
             <div className="mb-3">
-              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">目标机器用户名(比如 root)</label>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">SSH登录名(比如 root)</label>
               <input
                 className="input"
                 value={editing.target_user}

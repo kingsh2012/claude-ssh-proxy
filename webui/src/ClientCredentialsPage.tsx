@@ -128,7 +128,7 @@ export function ClientCredentialsPage() {
                 <td className="px-4 py-2">
                   {c.auth_type === "public_key" ? (
                     <span
-                      className="max-w-xs truncate font-mono text-xs"
+                      className="inline-block max-w-[10rem] truncate align-bottom font-mono text-xs"
                       title={c.public_key}
                     >
                       公钥: {c.public_key}

@@ -182,7 +182,7 @@ export function RoutesPage() {
       </div>
 
       <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        哪些客户端凭据能登录这台服务器,可以在这里编辑时勾选,也可以去"客户端凭据"页面管理。
+        每个登录别名对应一台真实机器,连接目标机器用的服务器凭据、能登录它的客户端凭据都在这里关联——两边的关联关系在"服务器凭据""客户端凭据"页面也能反过来编辑。
       </p>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
@@ -190,8 +190,7 @@ export function RoutesPage() {
           <thead className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
             <tr>
               <th className="px-4 py-2">登录别名</th>
-              <th className="px-4 py-2">目标机器</th>
-              <th className="px-4 py-2">目标用户</th>
+              <th className="px-4 py-2">目标SSH服务器</th>
               <th className="px-4 py-2">状态</th>
               <th className="px-4 py-2">连接测试</th>
               <th className="px-4 py-2">服务器凭据绑定</th>
@@ -206,7 +205,6 @@ export function RoutesPage() {
                 <td className="px-4 py-2 font-mono">
                   {r.target_host}:{r.target_port}
                 </td>
-                <td className="px-4 py-2 font-mono">{r.target_user || <span className="text-slate-400">-</span>}</td>
                 <td className="px-4 py-2">
                   {r.enabled ? (
                     <span className="text-emerald-600 dark:text-emerald-400">已启用</span>
@@ -220,7 +218,7 @@ export function RoutesPage() {
                 <td className="px-4 py-2">
                   {r.server_credential_id != null ? (
                     <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-xs text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
-                      凭据: {r.server_credential_label}
+                      {r.server_credential_label}({r.target_user})
                     </span>
                   ) : (
                     <span className="text-slate-400">未设置</span>
@@ -257,7 +255,7 @@ export function RoutesPage() {
             ))}
             {routes.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                   还没有配置任何服务器
                 </td>
               </tr>
@@ -273,33 +271,33 @@ export function RoutesPage() {
               {isNew ? "添加后端服务器" : `编辑 ${editing.route_user}`}
             </h3>
 
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="登录别名 (proxy 用户名,唯一)">
-                <input
-                  disabled={!isNew}
-                  className="input"
-                  value={editing.route_user}
-                  onChange={(e) => setEditing({ ...editing, route_user: e.target.value })}
-                />
-              </Field>
-              <Field label="目标机器 IP/域名">
-                <input
-                  className="input"
-                  value={editing.target_host}
-                  onChange={(e) => setEditing({ ...editing, target_host: e.target.value })}
-                />
-              </Field>
-              <Field label="目标端口">
-                <input
-                  type="number"
-                  className="input"
-                  value={editing.target_port}
-                  onChange={(e) => setEditing({ ...editing, target_port: Number(e.target.value) })}
-                />
-              </Field>
-            </div>
+            <Field label="代理登录名（唯一）">
+              <input
+                disabled={!isNew}
+                className="input"
+                value={editing.route_user}
+                onChange={(e) => setEditing({ ...editing, route_user: e.target.value })}
+              />
+            </Field>
 
-            <Field label="服务器凭据(提供目标用户名+密码/私钥)">
+            <Field label="目标SSH服务器IP/域名">
+              <input
+                className="input"
+                value={editing.target_host}
+                onChange={(e) => setEditing({ ...editing, target_host: e.target.value })}
+              />
+            </Field>
+
+            <Field label="目标SSH服务器端口">
+              <input
+                type="number"
+                className="input"
+                value={editing.target_port}
+                onChange={(e) => setEditing({ ...editing, target_port: Number(e.target.value) })}
+              />
+            </Field>
+
+            <Field label="服务器凭据(提供SSH登录名+密码/私钥)">
               {serverCredentials.length === 0 ? (
                 <p className="text-sm text-slate-400">还没有配置任何服务器凭据,先去"服务器凭据"页面添加</p>
               ) : (

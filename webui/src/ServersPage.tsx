@@ -299,26 +299,26 @@ export function ServersPage() {
             </Field>
 
             <Field label="服务器凭据(提供SSH登录名+密码/私钥)">
-              {serverCredentials.length === 0 ? (
-                <p className="text-sm text-slate-400">还没有配置任何服务器凭据,先去"服务器凭据"页面添加</p>
-              ) : (
-                <select
-                  className="input"
-                  value={editing.server_credential_id ?? ""}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      server_credential_id: e.target.value === "" ? null : Number(e.target.value),
-                    })
-                  }
-                >
-                  <option value="">(不设置)</option>
-                  {serverCredentials.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      #{c.id} {c.label}({c.target_user})
-                    </option>
-                  ))}
-                </select>
+              <select
+                className="input"
+                disabled={serverCredentials.length === 0}
+                value={editing.server_credential_id ?? ""}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    server_credential_id: e.target.value === "" ? null : Number(e.target.value),
+                  })
+                }
+              >
+                <option value="">(不设置)</option>
+                {serverCredentials.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    #{c.id} {c.label}({c.target_user})
+                  </option>
+                ))}
+              </select>
+              {serverCredentials.length === 0 && (
+                <p className="mt-1 text-sm text-slate-400">还没有配置任何服务器凭据,先去"服务器凭据"页面添加</p>
               )}
             </Field>
 

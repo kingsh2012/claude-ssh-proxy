@@ -194,8 +194,8 @@ export function ServersPage() {
               <th className="px-4 py-2">目标SSH服务器</th>
               <th className="px-4 py-2">状态</th>
               <th className="px-4 py-2">连接测试</th>
-              <th className="px-4 py-2">服务器凭据绑定</th>
-              <th className="px-4 py-2">客户端凭据绑定</th>
+              <th className="px-4 py-2">绑定的服务器凭据</th>
+              <th className="px-4 py-2">绑定的客户端凭据</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>

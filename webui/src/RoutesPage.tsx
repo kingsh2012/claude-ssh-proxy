@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, type RouteRecord, type ServerCredential } from "./api";
+import { api, ApiError, type ClientCredential, type RouteRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
 import { Tooltip } from "./Tooltip";
 
@@ -12,28 +12,33 @@ const emptyRoute: RouteRecord = {
   auth_password: "",
   auth_private_key: "",
   auth_private_key_passphrase: "",
-  client_key_labels: [],
-  listen_password: "",
-  clear_listen_password: false,
-  has_listen_password: false,
+  enabled: true,
+  client_credential_labels: [],
   last_test_at: null,
   last_test_ok: null,
 };
 
 export function RoutesPage() {
   const [routes, setRoutes] = useState<RouteRecord[]>([]);
-  const [credentials, setCredentials] = useState<ServerCredential[]>([]);
+  const [serverCredentials, setServerCredentials] = useState<ServerCredential[]>([]);
+  const [clientCredentials, setClientCredentials] = useState<ClientCredential[]>([]);
   const [editing, setEditing] = useState<RouteRecord | null>(null);
   const [useSharedCredential, setUseSharedCredential] = useState(false);
+  const [selectedCredentialIds, setSelectedCredentialIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState("");
   const [isNew, setIsNew] = useState(false);
   const [testingRoute, setTestingRoute] = useState<string | null>(null);
   const [testingAll, setTestingAll] = useState(false);
 
   async function load() {
-    const [r, c] = await Promise.all([api.listRoutes(), api.listServerCredentials()]);
+    const [r, sc, cc] = await Promise.all([
+      api.listRoutes(),
+      api.listServerCredentials(),
+      api.listClientCredentials(),
+    ]);
     setRoutes(r ?? []);
-    setCredentials(c ?? []);
+    setServerCredentials(sc ?? []);
+    setClientCredentials(cc ?? []);
   }
 
   useEffect(() => {
@@ -64,9 +69,23 @@ export function RoutesPage() {
     }
   }
 
+  async function toggleEnabled(r: RouteRecord) {
+    try {
+      const updated = await api.setRouteEnabled(r.route_user, !r.enabled);
+      setRoutes((prev) => prev.map((x) => (x.route_user === r.route_user ? updated : x)));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "操作失败");
+    }
+  }
+
+  function credentialIdsForRoute(routeUser: string): Set<number> {
+    return new Set(clientCredentials.filter((c) => c.route_users.includes(routeUser)).map((c) => c.id));
+  }
+
   function startCreate() {
     setEditing({ ...emptyRoute });
     setUseSharedCredential(false);
+    setSelectedCredentialIds(new Set());
     setIsNew(true);
     setError("");
   }
@@ -77,12 +96,37 @@ export function RoutesPage() {
       auth_password: "",
       auth_private_key: "",
       auth_private_key_passphrase: "",
-      listen_password: "",
-      clear_listen_password: false,
     });
     setUseSharedCredential(r.server_credential_id != null);
+    setSelectedCredentialIds(credentialIdsForRoute(r.route_user));
     setIsNew(false);
     setError("");
+  }
+
+  function duplicate(r: RouteRecord) {
+    setEditing({
+      ...r,
+      route_user: "",
+      auth_password: "",
+      auth_private_key: "",
+      auth_private_key_passphrase: "",
+    });
+    setUseSharedCredential(r.server_credential_id != null);
+    setSelectedCredentialIds(credentialIdsForRoute(r.route_user));
+    setIsNew(true);
+    setError("");
+  }
+
+  function toggleCredential(id: number) {
+    setSelectedCredentialIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   }
 
   async function save() {
@@ -93,6 +137,20 @@ export function RoutesPage() {
         ...editing,
         server_credential_id: useSharedCredential ? editing.server_credential_id : null,
       });
+
+      // 双向维护客户端凭据关联:这里按勾选结果,把这个别名加进/移出每份客户端凭据的 route_users。
+      const routeUser = editing.route_user;
+      for (const c of clientCredentials) {
+        const shouldHave = selectedCredentialIds.has(c.id);
+        const currentlyHas = c.route_users.includes(routeUser);
+        if (shouldHave === currentlyHas) continue;
+        const { id, has_password, ...rest } = c;
+        void id;
+        void has_password;
+        const routeUsers = shouldHave ? [...c.route_users, routeUser] : c.route_users.filter((ru) => ru !== routeUser);
+        await api.updateClientCredential(c.id, { ...rest, route_users: routeUsers });
+      }
+
       setEditing(null);
       await load();
     } catch (err) {
@@ -128,7 +186,7 @@ export function RoutesPage() {
       </div>
 
       <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        哪些客户端公钥能登录这台服务器,在"客户端密钥"页面管理。
+        哪些客户端凭据能登录这台服务器,可以在这里编辑时勾选,也可以去"客户端凭据"页面管理。
       </p>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
@@ -138,21 +196,28 @@ export function RoutesPage() {
               <th className="px-4 py-2">登录别名</th>
               <th className="px-4 py-2">目标机器</th>
               <th className="px-4 py-2">目标用户</th>
+              <th className="px-4 py-2">状态</th>
               <th className="px-4 py-2">连接测试</th>
               <th className="px-4 py-2">认证方式</th>
-              <th className="px-4 py-2">密码登录</th>
-              <th className="px-4 py-2">关联的客户端密钥</th>
+              <th className="px-4 py-2">关联的客户端凭据</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {routes.map((r) => (
-              <tr key={r.route_user} className="text-slate-800 dark:text-slate-200">
+              <tr key={r.route_user} className={`text-slate-800 dark:text-slate-200 ${r.enabled ? "" : "opacity-60"}`}>
                 <td className="px-4 py-2 font-mono">{r.route_user}</td>
                 <td className="px-4 py-2 font-mono">
                   {r.target_host}:{r.target_port}
                 </td>
                 <td className="px-4 py-2 font-mono">{r.target_user}</td>
+                <td className="px-4 py-2">
+                  {r.enabled ? (
+                    <span className="text-emerald-600 dark:text-emerald-400">已启用</span>
+                  ) : (
+                    <span className="text-slate-400">已禁用</span>
+                  )}
+                </td>
                 <td className="px-4 py-2">
                   <TestStatus route={r} />
                 </td>
@@ -168,22 +233,24 @@ export function RoutesPage() {
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  {r.has_listen_password ? (
-                    <span className="text-emerald-600 dark:text-emerald-400">已启用</span>
-                  ) : (
-                    <span className="text-slate-400">未启用</span>
-                  )}
+                  <ChipList items={r.client_credential_labels ?? []} emptyText="无" />
                 </td>
-                <td className="px-4 py-2">
-                  <ChipList items={r.client_key_labels ?? []} emptyText="无" />
-                </td>
-                <td className="px-4 py-2 text-right">
+                <td className="px-4 py-2 text-right whitespace-nowrap">
+                  <button
+                    onClick={() => toggleEnabled(r)}
+                    className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400"
+                  >
+                    {r.enabled ? "禁用" : "启用"}
+                  </button>
                   <button
                     onClick={() => testOne(r.route_user)}
                     disabled={testingRoute === r.route_user || testingAll}
                     className="mr-3 text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
                   >
                     {testingRoute === r.route_user ? "测试中..." : "测试连接"}
+                  </button>
+                  <button onClick={() => duplicate(r)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
+                    复制
                   </button>
                   <button onClick={() => startEdit(r)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
                     编辑
@@ -213,7 +280,7 @@ export function RoutesPage() {
             </h3>
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label="登录别名 (proxy 用户名)">
+              <Field label="登录别名 (proxy 用户名,唯一)">
                 <input
                   disabled={!isNew}
                   className="input"
@@ -248,19 +315,11 @@ export function RoutesPage() {
             <Field label="连接目标机器的认证方式">
               <div className="mb-2 flex gap-4 text-sm text-slate-700 dark:text-slate-300">
                 <label className="flex items-center gap-1.5">
-                  <input
-                    type="radio"
-                    checked={!useSharedCredential}
-                    onChange={() => setUseSharedCredential(false)}
-                  />
+                  <input type="radio" checked={!useSharedCredential} onChange={() => setUseSharedCredential(false)} />
                   单独指定
                 </label>
                 <label className="flex items-center gap-1.5">
-                  <input
-                    type="radio"
-                    checked={useSharedCredential}
-                    onChange={() => setUseSharedCredential(true)}
-                  />
+                  <input type="radio" checked={useSharedCredential} onChange={() => setUseSharedCredential(true)} />
                   使用服务器凭据
                 </label>
               </div>
@@ -268,10 +327,8 @@ export function RoutesPage() {
 
             {useSharedCredential ? (
               <Field label="选择服务器凭据">
-                {credentials.length === 0 ? (
-                  <p className="text-sm text-slate-400">
-                    还没有配置任何服务器凭据,先去"服务器凭据"页面添加
-                  </p>
+                {serverCredentials.length === 0 ? (
+                  <p className="text-sm text-slate-400">还没有配置任何服务器凭据,先去"服务器凭据"页面添加</p>
                 ) : (
                   <select
                     className="input"
@@ -281,7 +338,7 @@ export function RoutesPage() {
                     <option value="" disabled>
                       请选择
                     </option>
-                    {credentials.map((c) => (
+                    {serverCredentials.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.label}
                       </option>
@@ -335,32 +392,23 @@ export function RoutesPage() {
               </>
             )}
 
-            <Field
-              label={
-                editing.has_listen_password
-                  ? "登录密码 (已设置,留空则不修改;和关联的客户端公钥并存,任一种都能登录)"
-                  : "登录密码 (可选,留空则只能靠关联的客户端公钥登录)"
-              }
-            >
-              <input
-                type="password"
-                className="input"
-                value={editing.listen_password}
-                disabled={editing.clear_listen_password}
-                onChange={(e) => setEditing({ ...editing, listen_password: e.target.value })}
-              />
-              {editing.has_listen_password && (
-                <label className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  <input
-                    type="checkbox"
-                    checked={editing.clear_listen_password}
-                    onChange={(e) =>
-                      setEditing({ ...editing, clear_listen_password: e.target.checked, listen_password: "" })
-                    }
-                  />
-                  移除密码登录,只保留公钥
-                </label>
-              )}
+            <Field label="哪些客户端凭据能登录这台服务器">
+              <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-slate-300 p-2 dark:border-slate-700">
+                {clientCredentials.length === 0 && (
+                  <p className="text-sm text-slate-400">还没有配置任何客户端凭据,先去"客户端凭据"页面添加</p>
+                )}
+                {clientCredentials.map((c) => (
+                  <label key={c.id} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={selectedCredentialIds.has(c.id)}
+                      onChange={() => toggleCredential(c.id)}
+                    />
+                    <span>{c.label}</span>
+                    <span className="text-xs text-slate-400">({c.auth_type === "public_key" ? "公钥" : "密码"})</span>
+                  </label>
+                ))}
+              </div>
             </Field>
 
             {error && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>}

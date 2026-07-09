@@ -43,16 +43,17 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/routes/{user}", a.auth(a.handleDeleteRoute))
 	mux.HandleFunc("POST /api/routes/test-all", a.auth(a.handleTestAllRoutes))
 	mux.HandleFunc("POST /api/routes/{user}/test", a.auth(a.handleTestRoute))
+	mux.HandleFunc("PUT /api/routes/{user}/enabled", a.auth(a.handleSetRouteEnabled))
 
 	mux.HandleFunc("GET /api/server-credentials", a.auth(a.handleListServerCredentials))
 	mux.HandleFunc("POST /api/server-credentials", a.auth(a.handleCreateServerCredential))
 	mux.HandleFunc("PUT /api/server-credentials/{id}", a.auth(a.handleUpdateServerCredential))
 	mux.HandleFunc("DELETE /api/server-credentials/{id}", a.auth(a.handleDeleteServerCredential))
 
-	mux.HandleFunc("GET /api/client-keys", a.auth(a.handleListClientKeys))
-	mux.HandleFunc("POST /api/client-keys", a.auth(a.handleCreateClientKey))
-	mux.HandleFunc("PUT /api/client-keys/{id}", a.auth(a.handleUpdateClientKey))
-	mux.HandleFunc("DELETE /api/client-keys/{id}", a.auth(a.handleDeleteClientKey))
+	mux.HandleFunc("GET /api/client-credentials", a.auth(a.handleListClientCredentials))
+	mux.HandleFunc("POST /api/client-credentials", a.auth(a.handleCreateClientCredential))
+	mux.HandleFunc("PUT /api/client-credentials/{id}", a.auth(a.handleUpdateClientCredential))
+	mux.HandleFunc("DELETE /api/client-credentials/{id}", a.auth(a.handleDeleteClientCredential))
 
 	mux.HandleFunc("GET /api/settings", a.auth(a.handleGetSettings))
 	mux.HandleFunc("PUT /api/settings", a.auth(a.handleUpdateSettings))
@@ -252,6 +253,27 @@ func (a *API) handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
+func (a *API) handleSetRouteEnabled(w http.ResponseWriter, r *http.Request) {
+	user := r.PathValue("user")
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if err := a.store.SetRouteEnabled(user, body.Enabled); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := a.store.GetRoute(user)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	updated.AuthPassword, updated.AuthPrivateKey, updated.AuthPrivateKeyPassphrase = "", "", ""
+	writeJSON(w, updated)
+}
+
 // runRouteTest 连一次目标机器,把结果(成功/失败 + 错误信息)写回数据库,返回更新后的路由(不含密码/私钥)。
 func (a *API) runRouteTest(routeUser string) (*RouteRecord, error) {
 	route, err := a.store.GetRoute(routeUser)
@@ -408,29 +430,46 @@ func (a *API) handleDeleteServerCredential(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-func (a *API) handleListClientKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := a.store.ListClientKeys()
+func (a *API) handleListClientCredentials(w http.ResponseWriter, r *http.Request) {
+	creds, err := a.store.ListClientCredentials()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, keys)
+	writeJSON(w, creds)
 }
 
-func (a *API) handleCreateClientKey(w http.ResponseWriter, r *http.Request) {
-	var body ClientKey
+// validateClientCredentialAuth 校验客户端凭据的 auth_type 和对应字段;公钥类型顺带校验公钥格式。
+func validateClientCredentialAuth(c *ClientCredential) error {
+	switch c.AuthType {
+	case "public_key":
+		if c.PublicKey != "" {
+			if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(c.PublicKey)); err != nil {
+				return fmt.Errorf("公钥格式不合法: %w", err)
+			}
+		}
+	case "password":
+		// 密码留空表示编辑时不修改,Store 层会沿用旧值
+	default:
+		return fmt.Errorf("auth_type 必须是 public_key 或 password")
+	}
+	return nil
+}
+
+func (a *API) handleCreateClientCredential(w http.ResponseWriter, r *http.Request) {
+	var body ClientCredential
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if body.Label == "" || body.PublicKey == "" {
-		writeError(w, http.StatusBadRequest, "label / public_key 不能为空")
+	if body.Label == "" {
+		writeError(w, http.StatusBadRequest, "label 不能为空")
 		return
 	}
-	if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(body.PublicKey)); err != nil {
-		writeError(w, http.StatusBadRequest, "公钥格式不合法: "+err.Error())
+	if err := validateClientCredentialAuth(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	id, err := a.store.CreateClientKey(body.Label, body.PublicKey, body.RouteUsers)
+	id, err := a.store.CreateClientCredential(body, body.RouteUsers)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -438,38 +477,38 @@ func (a *API) handleCreateClientKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true, "id": id})
 }
 
-func (a *API) handleUpdateClientKey(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleUpdateClientCredential(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "非法的 id")
 		return
 	}
-	var body ClientKey
+	var body ClientCredential
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if body.Label == "" || body.PublicKey == "" {
-		writeError(w, http.StatusBadRequest, "label / public_key 不能为空")
+	if body.Label == "" {
+		writeError(w, http.StatusBadRequest, "label 不能为空")
 		return
 	}
-	if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(body.PublicKey)); err != nil {
-		writeError(w, http.StatusBadRequest, "公钥格式不合法: "+err.Error())
+	if err := validateClientCredentialAuth(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.store.UpdateClientKey(id, body.Label, body.PublicKey, body.RouteUsers); err != nil {
+	if err := a.store.UpdateClientCredential(id, body, body.RouteUsers); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-func (a *API) handleDeleteClientKey(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleDeleteClientCredential(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "非法的 id")
 		return
 	}
-	if err := a.store.DeleteClientKey(id); err != nil {
+	if err := a.store.DeleteClientCredential(id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

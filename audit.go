@@ -13,12 +13,12 @@ const auditMaxDetailBytes = 64 * 1024
 // auditSession 收集一个 "session" channel(exec/shell/subsystem)在生命周期内的
 // 关键信息:执行的命令、shell 阶段的输入输出、退出码,结束时落一条审计记录。
 type auditSession struct {
-	store          *Store
-	routeUser      string
-	remoteAddr     string
-	targetHost     string
-	targetPort     int
-	clientKeyLabel string
+	store                 *Store
+	routeUser             string
+	remoteAddr            string
+	targetHost            string
+	targetPort            int
+	clientCredentialLabel string
 
 	eventType  string
 	detail     strings.Builder
@@ -26,10 +26,10 @@ type auditSession struct {
 	exitStatus *int
 }
 
-func newAuditSession(store *Store, routeUser, remoteAddr, targetHost string, targetPort int, clientKeyLabel string) *auditSession {
+func newAuditSession(store *Store, routeUser, remoteAddr, targetHost string, targetPort int, clientCredentialLabel string) *auditSession {
 	return &auditSession{
 		store: store, routeUser: routeUser, remoteAddr: remoteAddr,
-		targetHost: targetHost, targetPort: targetPort, clientKeyLabel: clientKeyLabel,
+		targetHost: targetHost, targetPort: targetPort, clientCredentialLabel: clientCredentialLabel,
 	}
 }
 
@@ -85,15 +85,15 @@ func (a *auditSession) finish() {
 		return // 没有 exec/shell/subsystem 请求(比如纯端口转发),不记录
 	}
 	err := a.store.InsertAuditLog(AuditLog{
-		RouteUser:      a.routeUser,
-		RemoteAddr:     a.remoteAddr,
-		TargetHost:     a.targetHost,
-		TargetPort:     a.targetPort,
-		EventType:      a.eventType,
-		Detail:         a.detail.String(),
-		ExitStatus:     a.exitStatus,
-		Truncated:      a.truncated,
-		ClientKeyLabel: a.clientKeyLabel,
+		RouteUser:             a.routeUser,
+		RemoteAddr:            a.remoteAddr,
+		TargetHost:            a.targetHost,
+		TargetPort:            a.targetPort,
+		EventType:             a.eventType,
+		Detail:                a.detail.String(),
+		ExitStatus:            a.exitStatus,
+		Truncated:             a.truncated,
+		ClientCredentialLabel: a.clientCredentialLabel,
 	})
 	if err != nil {
 		log.Printf("写入审计日志失败: %v", err)

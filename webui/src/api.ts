@@ -1,4 +1,5 @@
 export type AuthType = "password" | "private_key";
+export type ClientAuthType = "public_key" | "password";
 
 export interface RouteRecord {
   route_user: string;
@@ -10,11 +11,9 @@ export interface RouteRecord {
   auth_private_key?: string;
   auth_private_key_passphrase?: string;
 
-  client_key_labels: string[];
+  enabled: boolean;
 
-  listen_password?: string;
-  clear_listen_password?: boolean;
-  has_listen_password: boolean;
+  client_credential_labels: string[];
 
   last_test_at: string | null;
   last_test_ok: boolean | null;
@@ -26,10 +25,13 @@ export interface RouteRecord {
   server_credential_label?: string;
 }
 
-export interface ClientKey {
+export interface ClientCredential {
   id: number;
   label: string;
-  public_key: string;
+  auth_type: ClientAuthType;
+  public_key?: string;
+  password?: string; // 明文,只在设置/修改密码时非空传入
+  has_password: boolean;
   route_users: string[];
 }
 
@@ -54,7 +56,7 @@ export interface AuditLog {
   detail: string;
   exit_status: number | null;
   truncated: boolean;
-  client_key_label: string;
+  client_credential_label: string;
 }
 
 class ApiError extends Error {
@@ -117,6 +119,11 @@ export const api = {
   testRoute: (routeUser: string) =>
     request<RouteRecord>(`/api/routes/${encodeURIComponent(routeUser)}/test`, { method: "POST" }),
   testAllRoutes: () => request<RouteRecord[]>("/api/routes/test-all", { method: "POST" }),
+  setRouteEnabled: (routeUser: string, enabled: boolean) =>
+    request<RouteRecord>(`/api/routes/${encodeURIComponent(routeUser)}/enabled`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
 
   listServerCredentials: () => request<ServerCredential[]>("/api/server-credentials"),
   createServerCredential: (cred: Omit<ServerCredential, "id" | "route_users">) =>
@@ -132,19 +139,19 @@ export const api = {
   deleteServerCredential: (id: number) =>
     request<{ ok: boolean }>(`/api/server-credentials/${id}`, { method: "DELETE" }),
 
-  listClientKeys: () => request<ClientKey[]>("/api/client-keys"),
-  createClientKey: (key: Omit<ClientKey, "id">) =>
-    request<{ ok: boolean; id: number }>("/api/client-keys", {
+  listClientCredentials: () => request<ClientCredential[]>("/api/client-credentials"),
+  createClientCredential: (cred: Omit<ClientCredential, "id" | "has_password">) =>
+    request<{ ok: boolean; id: number }>("/api/client-credentials", {
       method: "POST",
-      body: JSON.stringify(key),
+      body: JSON.stringify(cred),
     }),
-  updateClientKey: (id: number, key: Omit<ClientKey, "id">) =>
-    request<{ ok: boolean }>(`/api/client-keys/${id}`, {
+  updateClientCredential: (id: number, cred: Omit<ClientCredential, "id" | "has_password">) =>
+    request<{ ok: boolean }>(`/api/client-credentials/${id}`, {
       method: "PUT",
-      body: JSON.stringify(key),
+      body: JSON.stringify(cred),
     }),
-  deleteClientKey: (id: number) =>
-    request<{ ok: boolean }>(`/api/client-keys/${id}`, { method: "DELETE" }),
+  deleteClientCredential: (id: number) =>
+    request<{ ok: boolean }>(`/api/client-credentials/${id}`, { method: "DELETE" }),
 
   getSettings: () => request<{ listen_addr: string }>("/api/settings"),
   updateSettings: (listenAddr: string) =>

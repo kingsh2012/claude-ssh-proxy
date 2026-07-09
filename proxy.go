@@ -97,7 +97,7 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 	defer sconn.Close()
 
 	routeName := sconn.Permissions.Extensions["route-user"]
-	clientKeyLabel := sconn.Permissions.Extensions["client-key-label"]
+	clientCredentialLabel := sconn.Permissions.Extensions["client-credential-label"]
 	route, err := p.store.GetRoute(routeName)
 	if err != nil {
 		log.Printf("[%s] 路由 %q 不存在", remoteAddr, routeName)
@@ -121,7 +121,7 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 		wg.Add(1)
 		go func(nch ssh.NewChannel) {
 			defer wg.Done()
-			p.forwardChannel(nch, client, routeName, remoteAddr, route.TargetHost, route.TargetPort, clientKeyLabel)
+			p.forwardChannel(nch, client, routeName, remoteAddr, route.TargetHost, route.TargetPort, clientCredentialLabel)
 		}(newChan)
 	}
 	wg.Wait()
@@ -174,7 +174,7 @@ func TestRoute(route RouteRecord) error {
 // forwardChannel 把下游(Claude 侧)发起的一个 channel 对应地在上游(真实目标机器)
 // 打开一个同类型 channel,双向转发数据和 out-of-band 请求;对 "session" 类型的
 // channel(exec/shell/subsystem)顺带记录审计日志。
-func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, routeUser, remoteAddr, targetHost string, targetPort int, clientKeyLabel string) {
+func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, routeUser, remoteAddr, targetHost string, targetPort int, clientCredentialLabel string) {
 	upChan, upReqs, err := client.OpenChannel(newChan.ChannelType(), newChan.ExtraData())
 	if err != nil {
 		if openErr, ok := err.(*ssh.OpenChannelError); ok {
@@ -194,7 +194,7 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, route
 
 	var audit *auditSession
 	if newChan.ChannelType() == "session" {
-		audit = newAuditSession(p.store, routeUser, remoteAddr, targetHost, targetPort, clientKeyLabel)
+		audit = newAuditSession(p.store, routeUser, remoteAddr, targetHost, targetPort, clientCredentialLabel)
 		defer audit.finish()
 	}
 

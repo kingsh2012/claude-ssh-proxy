@@ -57,9 +57,9 @@ export function AuditPage() {
             >
               <span className="text-xs text-slate-400">{new Date(l.ts).toLocaleString()}</span>
               <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs dark:bg-slate-800">{l.route_user}</span>
-              {l.client_key_label && (
+              {l.client_credential_label && (
                 <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800">
-                  {l.client_key_label}
+                  {l.client_credential_label}
                 </span>
               )}
               <span className="font-mono text-xs text-slate-500">

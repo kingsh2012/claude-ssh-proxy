@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, type ClientCredential, type ServerRecord } from "./api";
 import { ChipList } from "./ChipList";
+import { SelectDropdown } from "./MultiSelectDropdown";
 
 const emptyCredential: Omit<ClientCredential, "id" | "has_password"> = {
   label: "",
@@ -170,14 +171,14 @@ export function ClientCredentialsPage() {
 
             <div className="mb-3">
               <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">认证方式</label>
-              <select
-                className="input"
+              <SelectDropdown
+                options={[
+                  { value: "public_key", label: "公钥" },
+                  { value: "password", label: "密码" },
+                ]}
                 value={editing.auth_type}
-                onChange={(e) => setEditing({ ...editing, auth_type: e.target.value as "public_key" | "password" })}
-              >
-                <option value="public_key">公钥</option>
-                <option value="password">密码</option>
-              </select>
+                onChange={(v) => setEditing({ ...editing, auth_type: v })}
+              />
             </div>
 
             {editing.auth_type === "public_key" ? (

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, type ClientCredential, type ServerRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
-import { MultiSelectDropdown } from "./MultiSelectDropdown";
+import { MultiSelectDropdown, SingleSelectDropdown } from "./MultiSelectDropdown";
 import { Tooltip } from "./Tooltip";
 
 const emptyServer: ServerRecord = {
@@ -299,27 +299,16 @@ export function ServersPage() {
             </Field>
 
             <Field label="服务器凭据(提供SSH登录名+密码/私钥)">
-              <select
-                className="input"
-                disabled={serverCredentials.length === 0}
-                value={editing.server_credential_id ?? ""}
-                onChange={(e) =>
-                  setEditing({
-                    ...editing,
-                    server_credential_id: e.target.value === "" ? null : Number(e.target.value),
-                  })
-                }
-              >
-                <option value="">(不设置)</option>
-                {serverCredentials.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    #{c.id} {c.label}({c.target_user})
-                  </option>
-                ))}
-              </select>
-              {serverCredentials.length === 0 && (
-                <p className="mt-1 text-sm text-slate-400">还没有配置任何服务器凭据,先去"服务器凭据"页面添加</p>
-              )}
+              <SingleSelectDropdown
+                options={serverCredentials.map((c) => ({
+                  id: c.id,
+                  label: `${c.label}(${c.target_user})`,
+                }))}
+                value={editing.server_credential_id ?? null}
+                onChange={(id) => setEditing({ ...editing, server_credential_id: id })}
+                placeholder="(不设置)"
+                emptyText='还没有配置任何服务器凭据,先去"服务器凭据"页面添加'
+              />
             </Field>
 
             <Field label="客户端凭据(可多选)">

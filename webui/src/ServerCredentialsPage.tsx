@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, type ServerRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
+import { SelectDropdown } from "./MultiSelectDropdown";
 
 const emptyCredential: Omit<ServerCredential, "id"> = {
   label: "",
@@ -177,14 +178,14 @@ export function ServerCredentialsPage() {
 
             <div className="mb-3">
               <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">认证方式</label>
-              <select
-                className="input"
+              <SelectDropdown
+                options={[
+                  { value: "password", label: "密码" },
+                  { value: "private_key", label: "私钥" },
+                ]}
                 value={editing.auth_type}
-                onChange={(e) => setEditing({ ...editing, auth_type: e.target.value as "password" | "private_key" })}
-              >
-                <option value="password">密码</option>
-                <option value="private_key">私钥</option>
-              </select>
+                onChange={(v) => setEditing({ ...editing, auth_type: v })}
+              />
             </div>
 
             {editing.auth_type === "password" ? (

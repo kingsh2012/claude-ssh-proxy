@@ -182,14 +182,14 @@ export function RoutesPage() {
       </div>
 
       <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        每个登录别名对应一台真实机器,连接目标机器用的服务器凭据、能登录它的客户端凭据都在这里关联——两边的关联关系在"服务器凭据""客户端凭据"页面也能反过来编辑。
+        每个代理登录名对应一台真实机器,连接目标机器用的服务器凭据、能登录它的客户端凭据都在这里关联——两边的关联关系在"服务器凭据""客户端凭据"页面也能反过来编辑。
       </p>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
             <tr>
-              <th className="px-4 py-2">登录别名</th>
+              <th className="px-4 py-2">代理登录名</th>
               <th className="px-4 py-2">目标SSH服务器</th>
               <th className="px-4 py-2">状态</th>
               <th className="px-4 py-2">连接测试</th>
@@ -271,7 +271,7 @@ export function RoutesPage() {
               {isNew ? "添加后端服务器" : `编辑 ${editing.route_user}`}
             </h3>
 
-            <Field label="代理登录名（唯一）">
+            <Field label="代理登录名(唯一)">
               <input
                 disabled={!isNew}
                 className="input"

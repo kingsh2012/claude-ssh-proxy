@@ -34,7 +34,7 @@ export function AuditPage() {
         <div className="flex gap-2">
           <input
             className="input max-w-xs"
-            placeholder="按登录别名过滤"
+            placeholder="按代理登录名过滤"
             value={routeUser}
             onChange={(e) => setRouteUser(e.target.value)}
           />

@@ -126,12 +126,12 @@ export const api = {
     }),
 
   listServerCredentials: () => request<ServerCredential[]>("/api/server-credentials"),
-  createServerCredential: (cred: Omit<ServerCredential, "id" | "route_users">) =>
+  createServerCredential: (cred: Omit<ServerCredential, "id">) =>
     request<{ ok: boolean; id: number }>("/api/server-credentials", {
       method: "POST",
       body: JSON.stringify(cred),
     }),
-  updateServerCredential: (id: number, cred: Omit<ServerCredential, "id" | "route_users">) =>
+  updateServerCredential: (id: number, cred: Omit<ServerCredential, "id">) =>
     request<{ ok: boolean }>(`/api/server-credentials/${id}`, {
       method: "PUT",
       body: JSON.stringify(cred),

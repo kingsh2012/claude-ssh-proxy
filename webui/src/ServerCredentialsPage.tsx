@@ -1,24 +1,26 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, type ServerCredential } from "./api";
+import { api, ApiError, type RouteRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
 
-const emptyCredential: Omit<ServerCredential, "id" | "route_users"> = {
+const emptyCredential: Omit<ServerCredential, "id"> = {
   label: "",
   auth_type: "password",
   auth_password: "",
   auth_private_key: "",
   auth_private_key_passphrase: "",
+  route_users: [],
 };
 
 export function ServerCredentialsPage() {
   const [creds, setCreds] = useState<ServerCredential[]>([]);
-  const [editing, setEditing] = useState<(Omit<ServerCredential, "id" | "route_users"> & { id?: number }) | null>(
-    null
-  );
+  const [routes, setRoutes] = useState<RouteRecord[]>([]);
+  const [editing, setEditing] = useState<(Omit<ServerCredential, "id"> & { id?: number }) | null>(null);
   const [error, setError] = useState("");
 
   async function load() {
-    setCreds((await api.listServerCredentials()) ?? []);
+    const [c, r] = await Promise.all([api.listServerCredentials(), api.listRoutes()]);
+    setCreds(c ?? []);
+    setRoutes(r ?? []);
   }
 
   useEffect(() => {
@@ -35,9 +37,33 @@ export function ServerCredentialsPage() {
     setError("");
   }
 
+  function toggleRoute(routeUser: string) {
+    if (!editing) return;
+    const set = new Set(editing.route_users);
+    if (set.has(routeUser)) {
+      set.delete(routeUser);
+    } else {
+      set.add(routeUser);
+    }
+    setEditing({ ...editing, route_users: Array.from(set) });
+  }
+
   async function save() {
     if (!editing) return;
     setError("");
+
+    // 取消勾选的服务器会失去这份凭据、认证方式变空,需要之后单独重新设置,先提醒一下。
+    if (editing.id != null) {
+      const before = creds.find((c) => c.id === editing.id);
+      const removed = (before?.route_users ?? []).filter((ru) => !editing.route_users.includes(ru));
+      if (removed.length > 0) {
+        const ok = confirm(
+          `取消勾选后,${removed.join(", ")} 会失去这份凭据,认证方式变空,需要单独重新设置密码/私钥或换一份凭据,确定继续吗?`
+        );
+        if (!ok) return;
+      }
+    }
+
     try {
       if (editing.id != null) {
         await api.updateServerCredential(editing.id, editing);
@@ -74,7 +100,7 @@ export function ServerCredentialsPage() {
       </div>
 
       <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        多台服务器用同一套密码/私钥登录时,把它存成一份共享凭据,在"服务器"页面编辑某台服务器时选用它就行——改一处,所有用它的服务器都跟着生效。正在被服务器使用的凭据不能删除。
+        多台服务器用同一套密码/私钥登录时,把它存成一份共享凭据——关联关系在这里勾选,也可以去"服务器"页面编辑某台服务器时反过来选。正在被服务器使用的凭据不能删除。
       </p>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
@@ -180,6 +206,28 @@ export function ServerCredentialsPage() {
                 </div>
               </>
             )}
+
+            <div className="mb-3">
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">哪些服务器使用这份凭据</label>
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-slate-300 p-2 dark:border-slate-700">
+                {routes.length === 0 && (
+                  <p className="text-sm text-slate-400">还没有配置任何服务器,先去"服务器"页面添加</p>
+                )}
+                {routes.map((r) => (
+                  <label key={r.route_user} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={editing.route_users.includes(r.route_user)}
+                      onChange={() => toggleRoute(r.route_user)}
+                    />
+                    <span className="font-mono">{r.route_user}</span>
+                    <span className="text-xs text-slate-400">
+                      ({r.target_host}:{r.target_port})
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
 
             {error && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
 

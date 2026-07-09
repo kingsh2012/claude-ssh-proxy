@@ -198,8 +198,8 @@ export function RoutesPage() {
               <th className="px-4 py-2">目标用户</th>
               <th className="px-4 py-2">状态</th>
               <th className="px-4 py-2">连接测试</th>
-              <th className="px-4 py-2">认证方式</th>
-              <th className="px-4 py-2">关联的客户端凭据</th>
+              <th className="px-4 py-2">服务器凭据绑定</th>
+              <th className="px-4 py-2">客户端凭据绑定</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>

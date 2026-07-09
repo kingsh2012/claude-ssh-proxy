@@ -384,6 +384,10 @@ func (a *API) handleCreateServerCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := a.store.SetServerCredentialRoutes(id, body.RouteUsers); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, map[string]any{"ok": true, "id": id})
 }
 
@@ -412,6 +416,10 @@ func (a *API) handleUpdateServerCredential(w http.ResponseWriter, r *http.Reques
 	}
 	if err := a.store.UpdateServerCredential(id, body); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := a.store.SetServerCredentialRoutes(id, body.RouteUsers); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})

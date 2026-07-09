@@ -560,6 +560,31 @@ func (s *Store) DeleteServerCredential(id int64) error {
 	return err
 }
 
+// SetServerCredentialRoutes 让"哪些服务器使用这份凭据"变成刚好是 routeUsers 这个列表:
+// 不在列表里但之前用着的服务器会被解除关联(server_credential_id 置空),这些服务器的
+// auth_password/auth_private_key 之前用共享凭据时就是空的,解除后需要单独重新设置认证方式。
+func (s *Store) SetServerCredentialRoutes(credID int64, routeUsers []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`UPDATE routes SET server_credential_id = NULL WHERE server_credential_id = ?`, credID); err != nil {
+		return err
+	}
+	for _, ru := range routeUsers {
+		res, err := tx.Exec(`UPDATE routes SET server_credential_id = ? WHERE route_user = ?`, credID, ru)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("服务器 %q 不存在", ru)
+		}
+	}
+	return tx.Commit()
+}
+
 // ---------- 客户端凭据(client_credentials) ----------
 
 // ClientCredential 是一个命名的客户端身份(比如某个 Claude Agent),认证方式是公钥或密码,

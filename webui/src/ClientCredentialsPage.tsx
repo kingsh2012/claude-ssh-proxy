@@ -225,7 +225,7 @@ export function ClientCredentialsPage() {
             )}
 
             <div className="mb-3">
-              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">这份凭据能登录哪些服务器</label>
+              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">绑定的服务器(可多选)</label>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-slate-300 p-2 dark:border-slate-700">
                 {servers.length === 0 && (
                   <p className="text-sm text-slate-400">还没有配置任何服务器,先去"服务器"页面添加</p>

@@ -322,7 +322,7 @@ export function ServersPage() {
               )}
             </Field>
 
-            <Field label="哪些客户端凭据能登录这台服务器">
+            <Field label="客户端凭据(可多选)">
               <MultiSelectDropdown
                 options={clientCredentials.map((c) => ({
                   id: c.id,

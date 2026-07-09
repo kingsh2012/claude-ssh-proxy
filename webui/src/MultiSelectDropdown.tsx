@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 export interface MultiSelectOption {
-  id: number;
+  id: string | number;
   label: string;
   sublabel?: string;
 }
@@ -17,8 +17,8 @@ export function MultiSelectDropdown({
   emptyText,
 }: {
   options: MultiSelectOption[];
-  selectedIds: Set<number>;
-  onToggle: (id: number) => void;
+  selectedIds: Set<string | number>;
+  onToggle: (id: string | number) => void;
   placeholder: string;
   emptyText?: string;
 }) {
@@ -53,7 +53,7 @@ export function MultiSelectDropdown({
                 key={o.id}
                 className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs whitespace-nowrap dark:bg-slate-800"
               >
-                #{o.id} {o.label}
+                {o.label}
                 <button
                   type="button"
                   className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
@@ -81,7 +81,7 @@ export function MultiSelectDropdown({
             >
               <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => onToggle(o.id)} />
               <span>
-                #{o.id} {o.label}
+                {o.label}
               </span>
               {o.sublabel && <span className="text-xs text-slate-400">{o.sublabel}</span>}
             </label>
@@ -104,8 +104,8 @@ export function SingleSelectDropdown({
   emptyText,
 }: {
   options: MultiSelectOption[];
-  value: number | null;
-  onChange: (id: number | null) => void;
+  value: string | number | null;
+  onChange: (id: string | number | null) => void;
   placeholder: string;
   noneLabel?: string;
   emptyText?: string;
@@ -135,9 +135,7 @@ export function SingleSelectDropdown({
         }`}
         onClick={() => !disabled && setOpen((v) => !v)}
       >
-        <span className={selected ? "" : "text-slate-400"}>
-          {selected ? `#${selected.id} ${selected.label}` : placeholder}
-        </span>
+        <span className={selected ? "" : "text-slate-400"}>{selected ? selected.label : placeholder}</span>
         <span className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}>▼</span>
       </div>
 
@@ -164,7 +162,7 @@ export function SingleSelectDropdown({
                 setOpen(false);
               }}
             >
-              #{o.id} {o.label}
+              {o.label}
               {o.sublabel && <span className="ml-1 text-xs text-slate-400">{o.sublabel}</span>}
             </div>
           ))}

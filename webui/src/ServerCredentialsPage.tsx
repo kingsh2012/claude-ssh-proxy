@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, type ServerRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
-import { SelectDropdown } from "./MultiSelectDropdown";
+import { MultiSelectDropdown, SelectDropdown } from "./MultiSelectDropdown";
 
 const emptyCredential: Omit<ServerCredential, "id"> = {
   label: "",
@@ -226,24 +226,17 @@ export function ServerCredentialsPage() {
 
             <div className="mb-3">
               <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">绑定的服务器(可多选)</label>
-              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-slate-300 p-2 dark:border-slate-700">
-                {servers.length === 0 && (
-                  <p className="text-sm text-slate-400">还没有配置任何服务器,先去"服务器"页面添加</p>
-                )}
-                {servers.map((r) => (
-                  <label key={r.proxy_user} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={editing.proxy_users.includes(r.proxy_user)}
-                      onChange={() => toggleServer(r.proxy_user)}
-                    />
-                    <span className="font-mono">{r.proxy_user}</span>
-                    <span className="text-xs text-slate-400">
-                      ({r.target_host}:{r.target_port})
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <MultiSelectDropdown
+                options={servers.map((r) => ({
+                  id: r.proxy_user,
+                  label: r.proxy_user,
+                  sublabel: `(${r.target_host}:${r.target_port})`,
+                }))}
+                selectedIds={new Set(editing.proxy_users)}
+                onToggle={(id) => toggleServer(id as string)}
+                placeholder="(未选择)"
+                emptyText='还没有配置任何服务器,先去"服务器"页面添加'
+              />
             </div>
 
             {error && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>}

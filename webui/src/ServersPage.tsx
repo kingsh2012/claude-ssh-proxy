@@ -302,10 +302,10 @@ export function ServersPage() {
               <SingleSelectDropdown
                 options={serverCredentials.map((c) => ({
                   id: c.id,
-                  label: `${c.label}(${c.target_user})`,
+                  label: `#${c.id} ${c.label}(${c.target_user})`,
                 }))}
                 value={editing.server_credential_id ?? null}
-                onChange={(id) => setEditing({ ...editing, server_credential_id: id })}
+                onChange={(id) => setEditing({ ...editing, server_credential_id: id as number | null })}
                 placeholder="(不设置)"
                 emptyText='还没有配置任何服务器凭据,先去"服务器凭据"页面添加'
               />
@@ -315,11 +315,11 @@ export function ServersPage() {
               <MultiSelectDropdown
                 options={clientCredentials.map((c) => ({
                   id: c.id,
-                  label: c.label,
+                  label: `#${c.id} ${c.label}`,
                   sublabel: `(${c.auth_type === "public_key" ? "公钥" : "密码"})`,
                 }))}
                 selectedIds={selectedCredentialIds}
-                onToggle={toggleCredential}
+                onToggle={(id) => toggleCredential(id as number)}
                 placeholder="(未选择)"
                 emptyText='还没有配置任何客户端凭据,先去"客户端凭据"页面添加'
               />

@@ -101,7 +101,7 @@ export function ServerCredentialsPage() {
       </div>
 
       <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        多台服务器用同一套密码/私钥登录时,把它存成一份共享凭据——关联关系在这里勾选,也可以去"服务器"页面编辑某台服务器时反过来选。正在被服务器使用的凭据不能删除。
+        多台服务器用同一套密码/私钥登录时,把它存成一份共享凭据——绑定关系在这里勾选,也可以去"服务器"页面编辑某台服务器时反过来选。已绑定服务器的凭据不能删除。
       </p>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">

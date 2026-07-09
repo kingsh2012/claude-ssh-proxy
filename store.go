@@ -56,6 +56,10 @@ func (s *Store) migrate() error {
 			auth_private_key TEXT,
 			auth_private_key_passphrase TEXT,
 			enabled INTEGER NOT NULL DEFAULT 1,
+			server_credential_id INTEGER,
+			last_test_at DATETIME,
+			last_test_ok INTEGER,
+			last_test_error TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -102,58 +106,7 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("迁移失败 (%s): %w", stmt, err)
 		}
 	}
-	// route_authorized_keys、client_keys/route_client_keys 是更早期版本的表结构,
-	// 客户端密钥现已并入 client_credentials/route_client_credentials,不做数据迁移直接清理旧表。
-	for _, oldTable := range []string{"route_authorized_keys", "route_client_keys", "client_keys"} {
-		if _, err := s.db.Exec(fmt.Sprintf(`DROP TABLE IF EXISTS %s`, oldTable)); err != nil {
-			return fmt.Errorf("清理旧表 %s 失败: %w", oldTable, err)
-		}
-	}
-	if err := s.ensureColumn("admin_users", "initialized", "INTEGER NOT NULL DEFAULT 0"); err != nil {
-		return err
-	}
-	if err := s.ensureColumn("audit_logs", "client_credential_label", "TEXT"); err != nil {
-		return err
-	}
-	if err := s.ensureColumn("routes", "last_test_at", "DATETIME"); err != nil {
-		return err
-	}
-	if err := s.ensureColumn("routes", "last_test_ok", "INTEGER"); err != nil {
-		return err
-	}
-	if err := s.ensureColumn("routes", "last_test_error", "TEXT"); err != nil {
-		return err
-	}
-	if err := s.ensureColumn("routes", "server_credential_id", "INTEGER"); err != nil {
-		return err
-	}
-	return s.ensureColumn("routes", "enabled", "INTEGER NOT NULL DEFAULT 1")
-}
-
-// ensureColumn 给已存在的旧库补列(SQLite 的 ALTER TABLE 不支持 IF NOT EXISTS)。
-func (s *Store) ensureColumn(table, column, decl string) error {
-	rows, err := s.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notNull, pk int
-		var dflt sql.NullString
-		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
-			return err
-		}
-		if name == column {
-			return nil // 已存在
-		}
-	}
-	rows.Close()
-
-	_, err = s.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, decl))
-	return err
+	return nil
 }
 
 // ---------- settings ----------

@@ -72,7 +72,7 @@ export function SettingsPage() {
             <input
               type="password"
               className="input"
-              placeholder="新密码 (至少 8 位)"
+              placeholder="新密码(至少 8 位)"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />

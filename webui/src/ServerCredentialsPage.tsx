@@ -190,7 +190,9 @@ export function ServerCredentialsPage() {
 
             {editing.auth_type === "password" ? (
               <div className="mb-3">
-                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">密码(留空则不修改)</label>
+                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+                  {editing.id != null ? "密码(留空则不修改)" : "密码"}
+                </label>
                 <input
                   type="password"
                   className="input"
@@ -202,7 +204,7 @@ export function ServerCredentialsPage() {
               <>
                 <div className="mb-3">
                   <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-                    私钥内容(PEM,留空则不修改)
+                    {editing.id != null ? "私钥内容(PEM,留空则不修改)" : "私钥内容(PEM)"}
                   </label>
                   <textarea
                     className="input h-24 font-mono"

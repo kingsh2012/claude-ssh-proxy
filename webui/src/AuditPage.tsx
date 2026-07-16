@@ -69,9 +69,17 @@ export function AuditPage() {
                 {l.event_type}
               </span>
               <span className="text-xs text-slate-400">来自 {l.remote_addr}</span>
-              {l.exit_status !== null && (
+              {l.status === "running" ? (
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                  运行中
+                </span>
+              ) : l.exit_status !== null ? (
                 <span className={`text-xs ${l.exit_status === 0 ? "text-emerald-500" : "text-red-500"}`}>
                   exit={l.exit_status}
+                </span>
+              ) : (
+                <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                  未收到退出码(可能连接中断)
                 </span>
               )}
             </div>

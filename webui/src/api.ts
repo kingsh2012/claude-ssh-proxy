@@ -56,6 +56,7 @@ export interface AuditLog {
   detail?: string;
   exit_status: number | null;
   truncated: boolean;
+  status: "running" | "completed";
   client_credential_label: string;
 }
 

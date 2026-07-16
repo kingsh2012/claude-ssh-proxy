@@ -94,6 +94,7 @@ func (s *Store) migrate() error {
 			detail TEXT,
 			exit_status INTEGER,
 			truncated INTEGER DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'completed',
 			client_credential_label TEXT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(ts)`,
@@ -738,16 +739,35 @@ type AuditLog struct {
 
 	// Detail 是 shell/subsystem 场景下客户端敲的原始字节(不含服务器返回的终端输出,
 	// 那是未过滤的终端控制序列,存下来没法看)。
-	Detail                string `json:"detail,omitempty"`
-	ExitStatus            *int   `json:"exit_status"`
-	Truncated             bool   `json:"truncated"`
+	Detail     string `json:"detail,omitempty"`
+	ExitStatus *int   `json:"exit_status"`
+	Truncated  bool   `json:"truncated"`
+
+	// Status 是 "running" 或 "completed"。收到 exec/shell/subsystem 请求时先插入一条
+	// running 记录,channel 结束时再回写 output/exit_status 并改成 completed——这样即使
+	// 代理进程中途崩溃,也能看出"这条命令启动过但没跑完",而不是完全没有记录。
+	// ExitStatus 为空但 Status 已经是 completed,说明 channel 结束前没收到目标机器的
+	// 退出码,多半是连接异常中断(客户端 Ctrl+C、断线等),不是命令正常执行完。
+	Status                string `json:"status"`
 	ClientCredentialLabel string `json:"client_credential_label"`
 }
 
-func (s *Store) InsertAuditLog(a AuditLog) error {
-	_, err := s.db.Exec(`INSERT INTO audit_logs(proxy_user, remote_addr, target_host, target_port, event_type, command, output, detail, exit_status, truncated, client_credential_label)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ProxyUser, a.RemoteAddr, a.TargetHost, a.TargetPort, a.EventType, a.Command, a.Output, a.Detail, a.ExitStatus, boolToInt(a.Truncated), a.ClientCredentialLabel)
+// InsertAuditLog 插入一条 status="running" 的记录(此时命令刚开始执行,还没有
+// output/exit_status),返回自增 ID,供后续 CompleteAuditLog 回写用。
+func (s *Store) InsertAuditLog(a AuditLog) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO audit_logs(proxy_user, remote_addr, target_host, target_port, event_type, command, status, client_credential_label)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ProxyUser, a.RemoteAddr, a.TargetHost, a.TargetPort, a.EventType, a.Command, a.Status, a.ClientCredentialLabel)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// CompleteAuditLog 把 InsertAuditLog 插入的那一行补上 output/exit_status,状态改成 completed。
+func (s *Store) CompleteAuditLog(id int64, output, detail string, exitStatus *int, truncated bool) error {
+	_, err := s.db.Exec(`UPDATE audit_logs SET output = ?, detail = ?, exit_status = ?, truncated = ?, status = 'completed' WHERE id = ?`,
+		output, detail, exitStatus, boolToInt(truncated), id)
 	return err
 }
 
@@ -762,7 +782,7 @@ func (s *Store) ListAuditLogs(limit int, proxyUser string) ([]AuditLog, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	query := `SELECT id, ts, proxy_user, remote_addr, target_host, target_port, event_type, command, output, detail, exit_status, truncated, client_credential_label
+	query := `SELECT id, ts, proxy_user, remote_addr, target_host, target_port, event_type, command, output, detail, exit_status, truncated, status, client_credential_label
 		FROM audit_logs`
 	args := []any{}
 	if proxyUser != "" {
@@ -781,16 +801,17 @@ func (s *Store) ListAuditLogs(limit int, proxyUser string) ([]AuditLog, error) {
 	out := []AuditLog{}
 	for rows.Next() {
 		var a AuditLog
-		var command, output sql.NullString
+		var command, output, detail sql.NullString
 		var exitStatus sql.NullInt64
 		var truncated int
 		var clientCredentialLabel sql.NullString
 		if err := rows.Scan(&a.ID, &a.Ts, &a.ProxyUser, &a.RemoteAddr, &a.TargetHost, &a.TargetPort,
-			&a.EventType, &command, &output, &a.Detail, &exitStatus, &truncated, &clientCredentialLabel); err != nil {
+			&a.EventType, &command, &output, &detail, &exitStatus, &truncated, &a.Status, &clientCredentialLabel); err != nil {
 			return nil, err
 		}
 		a.Command = command.String
 		a.Output = output.String
+		a.Detail = detail.String
 		if exitStatus.Valid {
 			v := int(exitStatus.Int64)
 			a.ExitStatus = &v

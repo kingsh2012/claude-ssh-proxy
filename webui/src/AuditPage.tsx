@@ -76,10 +76,30 @@ export function AuditPage() {
               )}
             </div>
             {expanded === l.id && (
-              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                {l.detail || "(无输出内容)"}
-                {l.truncated && "\n... (已截断)"}
-              </pre>
+              <div className="mt-2 space-y-2">
+                {l.event_type === "exec" ? (
+                  <>
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">命令</div>
+                      <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                        {l.command || "(空)"}
+                      </pre>
+                    </div>
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">输出</div>
+                      <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                        {l.output || "(无输出内容)"}
+                        {l.truncated && "\n... (已截断)"}
+                      </pre>
+                    </div>
+                  </>
+                ) : (
+                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    {l.detail || "(无输出内容)"}
+                    {l.truncated && "\n... (已截断)"}
+                  </pre>
+                )}
+              </div>
             )}
           </div>
         ))}

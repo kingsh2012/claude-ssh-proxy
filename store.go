@@ -89,6 +89,8 @@ func (s *Store) migrate() error {
 			target_host TEXT,
 			target_port INTEGER,
 			event_type TEXT,
+			command TEXT,
+			output TEXT,
 			detail TEXT,
 			exit_status INTEGER,
 			truncated INTEGER DEFAULT 0,
@@ -721,23 +723,31 @@ func (s *Store) DeleteClientCredential(id int64) error {
 // ---------- audit logs ----------
 
 type AuditLog struct {
-	ID                    int64     `json:"id"`
-	Ts                    time.Time `json:"ts"`
-	ProxyUser             string    `json:"proxy_user"`
-	RemoteAddr            string    `json:"remote_addr"`
-	TargetHost            string    `json:"target_host"`
-	TargetPort            int       `json:"target_port"`
-	EventType             string    `json:"event_type"`
-	Detail                string    `json:"detail"`
-	ExitStatus            *int      `json:"exit_status"`
-	Truncated             bool      `json:"truncated"`
-	ClientCredentialLabel string    `json:"client_credential_label"`
+	ID         int64     `json:"id"`
+	Ts         time.Time `json:"ts"`
+	ProxyUser  string    `json:"proxy_user"`
+	RemoteAddr string    `json:"remote_addr"`
+	TargetHost string    `json:"target_host"`
+	TargetPort int       `json:"target_port"`
+	EventType  string    `json:"event_type"`
+
+	// Command/Output 只在 EventType == "exec" 时有意义:一次性命令(比如 `ssh host "ls -la"`)
+	// 本身和它的返回结果(stdout/stderr),一一对应地分开存。
+	Command string `json:"command,omitempty"`
+	Output  string `json:"output,omitempty"`
+
+	// Detail 是 shell/subsystem 场景下客户端敲的原始字节(不含服务器返回的终端输出,
+	// 那是未过滤的终端控制序列,存下来没法看)。
+	Detail                string `json:"detail,omitempty"`
+	ExitStatus            *int   `json:"exit_status"`
+	Truncated             bool   `json:"truncated"`
+	ClientCredentialLabel string `json:"client_credential_label"`
 }
 
 func (s *Store) InsertAuditLog(a AuditLog) error {
-	_, err := s.db.Exec(`INSERT INTO audit_logs(proxy_user, remote_addr, target_host, target_port, event_type, detail, exit_status, truncated, client_credential_label)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.ProxyUser, a.RemoteAddr, a.TargetHost, a.TargetPort, a.EventType, a.Detail, a.ExitStatus, boolToInt(a.Truncated), a.ClientCredentialLabel)
+	_, err := s.db.Exec(`INSERT INTO audit_logs(proxy_user, remote_addr, target_host, target_port, event_type, command, output, detail, exit_status, truncated, client_credential_label)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ProxyUser, a.RemoteAddr, a.TargetHost, a.TargetPort, a.EventType, a.Command, a.Output, a.Detail, a.ExitStatus, boolToInt(a.Truncated), a.ClientCredentialLabel)
 	return err
 }
 
@@ -752,7 +762,7 @@ func (s *Store) ListAuditLogs(limit int, proxyUser string) ([]AuditLog, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	query := `SELECT id, ts, proxy_user, remote_addr, target_host, target_port, event_type, detail, exit_status, truncated, client_credential_label
+	query := `SELECT id, ts, proxy_user, remote_addr, target_host, target_port, event_type, command, output, detail, exit_status, truncated, client_credential_label
 		FROM audit_logs`
 	args := []any{}
 	if proxyUser != "" {
@@ -771,13 +781,16 @@ func (s *Store) ListAuditLogs(limit int, proxyUser string) ([]AuditLog, error) {
 	out := []AuditLog{}
 	for rows.Next() {
 		var a AuditLog
+		var command, output sql.NullString
 		var exitStatus sql.NullInt64
 		var truncated int
 		var clientCredentialLabel sql.NullString
 		if err := rows.Scan(&a.ID, &a.Ts, &a.ProxyUser, &a.RemoteAddr, &a.TargetHost, &a.TargetPort,
-			&a.EventType, &a.Detail, &exitStatus, &truncated, &clientCredentialLabel); err != nil {
+			&a.EventType, &command, &output, &a.Detail, &exitStatus, &truncated, &clientCredentialLabel); err != nil {
 			return nil, err
 		}
+		a.Command = command.String
+		a.Output = output.String
 		if exitStatus.Valid {
 			v := int(exitStatus.Int64)
 			a.ExitStatus = &v

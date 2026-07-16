@@ -226,7 +226,11 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxy
 	}()
 	go func() {
 		defer wg.Done()
-		io.Copy(downChan, upChan)
+		var reader io.Reader = upChan
+		if audit != nil {
+			reader = io.TeeReader(upChan, outputWriter{audit}) // 捕获 server->client 方向的数据(exec 命令的输出)
+		}
+		io.Copy(downChan, reader)
 		downChan.CloseWrite()
 	}()
 	wg.Wait()

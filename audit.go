@@ -11,7 +11,7 @@ import (
 const auditMaxDetailBytes = 64 * 1024
 
 // auditSession 收集一个 "session" channel(exec/shell/subsystem)在生命周期内的
-// 关键信息:执行的命令、shell 阶段的输入输出、退出码,结束时落一条审计记录。
+// 关键信息:执行的命令、shell 阶段的输入、命令的返回结果、退出码,结束时落一条审计记录。
 type auditSession struct {
 	store                 *Store
 	proxyUser             string
@@ -21,8 +21,11 @@ type auditSession struct {
 	clientCredentialLabel string
 
 	eventType  string
-	detail     strings.Builder
-	truncated  bool
+	command    string // 只在 exec 场景下有值:命令原文
+	output     strings.Builder
+	outputTr   bool
+	detail     strings.Builder // shell/subsystem 场景下客户端敲的原始内容
+	detailTr   bool
 	exitStatus *int
 }
 
@@ -40,7 +43,7 @@ func (a *auditSession) noteRequest(req *ssh.Request) {
 	case "exec":
 		if cmd, ok := parseSSHString(req.Payload); ok {
 			a.eventType = "exec"
-			a.appendDetail("$ " + cmd + "\n")
+			a.command = cmd
 		}
 	case "shell":
 		if a.eventType == "" {
@@ -60,24 +63,46 @@ func (a *auditSession) noteRequest(req *ssh.Request) {
 
 // Write 让 auditSession 可以作为 io.Writer 接到 TeeReader 上,捕获 shell 阶段客户端敲的内容。
 func (a *auditSession) Write(p []byte) (int, error) {
-	a.appendDetail(string(p))
+	if !a.detailTr {
+		s := string(p)
+		remain := auditMaxDetailBytes - a.detail.Len()
+		if remain <= 0 {
+			a.detailTr = true
+		} else {
+			if len(s) > remain {
+				s = s[:remain]
+				a.detailTr = true
+			}
+			a.detail.WriteString(s)
+		}
+	}
 	return len(p), nil
 }
 
-func (a *auditSession) appendDetail(s string) {
-	if a.truncated {
-		return
+// outputWriter 用来捕获 server->client 方向的数据,也就是命令的返回结果。
+// 只有 exec 场景(一次性命令,比如 `ssh host "ls -la"`)才记录:这种输出通常是干净的
+// stdout/stderr 文本。交互式 shell 会话如果也记录这个方向,拿到的是原始终端字节流,
+// 里面全是光标控制符和 ANSI 转义序列,存下来是乱码,所以特意跳过。
+type outputWriter struct {
+	*auditSession
+}
+
+func (w outputWriter) Write(p []byte) (int, error) {
+	if w.eventType != "exec" || w.outputTr {
+		return len(p), nil
 	}
-	remain := auditMaxDetailBytes - a.detail.Len()
+	s := string(p)
+	remain := auditMaxDetailBytes - w.output.Len()
 	if remain <= 0 {
-		a.truncated = true
-		return
+		w.outputTr = true
+		return len(p), nil
 	}
 	if len(s) > remain {
 		s = s[:remain]
-		a.truncated = true
+		w.outputTr = true
 	}
-	a.detail.WriteString(s)
+	w.output.WriteString(s)
+	return len(p), nil
 }
 
 func (a *auditSession) finish() {
@@ -90,9 +115,11 @@ func (a *auditSession) finish() {
 		TargetHost:            a.targetHost,
 		TargetPort:            a.targetPort,
 		EventType:             a.eventType,
+		Command:               a.command,
+		Output:                a.output.String(),
 		Detail:                a.detail.String(),
 		ExitStatus:            a.exitStatus,
-		Truncated:             a.truncated,
+		Truncated:             a.detailTr || a.outputTr,
 		ClientCredentialLabel: a.clientCredentialLabel,
 	})
 	if err != nil {

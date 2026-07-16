@@ -51,7 +51,9 @@ export interface AuditLog {
   target_host: string;
   target_port: number;
   event_type: string;
-  detail: string;
+  command?: string;
+  output?: string;
+  detail?: string;
   exit_status: number | null;
   truncated: boolean;
   client_credential_label: string;

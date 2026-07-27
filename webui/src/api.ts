@@ -9,6 +9,10 @@ export interface ServerRecord {
 
   enabled: boolean;
 
+  // 兼容旧设备:勾选后连接该服务器时会额外带上过时的弱加密算法(CBC 类 cipher、老 KEX、
+  // ssh-dss host key)做兜底协商,仅用于无法支持现代算法的老旧交换机等设备。
+  legacy_algorithms: boolean;
+
   client_credential_labels: string[];
 
   last_test_at: string | null;

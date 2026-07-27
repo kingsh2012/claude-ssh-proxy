@@ -169,6 +169,17 @@ func dialUpstreamTimeout(server ServerRecord, timeout time.Duration) (*ssh.Clien
 		Timeout:         timeout,
 	}
 
+	// 部分老旧交换机/网络设备只支持过时的弱算法(CBC 类 cipher、老 KEX、ssh-dss host key),
+	// x/crypto/ssh 默认不启用这些不安全算法。只有服务器显式勾选了"兼容旧设备"才在默认算法
+	// 后面追加这些兜底选项,避免所有服务器都被动接受弱算法、扩大安全面。
+	if server.LegacyAlgorithms {
+		supported := ssh.SupportedAlgorithms()
+		insecure := ssh.InsecureAlgorithms()
+		clientCfg.Config.Ciphers = append(append([]string{}, supported.Ciphers...), insecure.Ciphers...)
+		clientCfg.Config.KeyExchanges = append(append([]string{}, supported.KeyExchanges...), insecure.KeyExchanges...)
+		clientCfg.HostKeyAlgorithms = append(append([]string{}, supported.HostKeys...), insecure.HostKeys...)
+	}
+
 	addr := fmt.Sprintf("%s:%d", server.TargetHost, server.TargetPort)
 	return ssh.Dial("tcp", addr, clientCfg)
 }

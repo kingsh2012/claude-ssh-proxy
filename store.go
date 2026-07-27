@@ -139,6 +139,7 @@ func (s *Store) migrate() error {
 			target_host TEXT NOT NULL,
 			target_port INTEGER NOT NULL DEFAULT 22,
 			enabled INTEGER NOT NULL DEFAULT 1,
+			legacy_algorithms INTEGER NOT NULL DEFAULT 0,
 			server_credential_id INTEGER,
 			last_test_at DATETIME,
 			last_test_ok INTEGER,
@@ -287,6 +288,12 @@ type ServerRecord struct {
 	// 是否允许连接;禁用后,不管客户端凭据/共享凭据对不对,一律拒绝这个别名的登录。
 	Enabled bool `json:"enabled"`
 
+	// 兼容旧设备:部分老旧交换机等设备只支持过时的弱加密算法(如 aes128-cbc、3des-cbc、
+	// diffie-hellman-group1-sha1、ssh-rsa host key)。默认不启用这些不安全算法,
+	// 只有勾选了这个开关的服务器,连接时才会额外带上它们做兜底协商,避免所有服务器
+	// 都被动接受弱算法、扩大安全面。
+	LegacyAlgorithms bool `json:"legacy_algorithms"`
+
 	// 只读,展示当前有哪些客户端凭据关联到了这条服务器;凭据本身在"客户端凭据"页面管理。
 	ClientCredentialLabels []string `json:"client_credential_labels"`
 
@@ -301,20 +308,22 @@ type ServerRecord struct {
 	ServerCredentialLabel string `json:"server_credential_label,omitempty"` // 只读
 }
 
-const serverSelectColumns = `id, proxy_user, target_host, target_port, enabled,
+const serverSelectColumns = `id, proxy_user, target_host, target_port, enabled, legacy_algorithms,
 	last_test_at, last_test_ok, last_test_error, server_credential_id`
 
 func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
 	var r ServerRecord
 	var testErr sql.NullString
 	var enabled int
+	var legacyAlgorithms int
 	var testAt sql.NullTime
 	var testOK sql.NullInt64
 	var credID sql.NullInt64
-	if err := scan(&r.ID, &r.ProxyUser, &r.TargetHost, &r.TargetPort, &enabled, &testAt, &testOK, &testErr, &credID); err != nil {
+	if err := scan(&r.ID, &r.ProxyUser, &r.TargetHost, &r.TargetPort, &enabled, &legacyAlgorithms, &testAt, &testOK, &testErr, &credID); err != nil {
 		return r, err
 	}
 	r.Enabled = enabled != 0
+	r.LegacyAlgorithms = legacyAlgorithms != 0
 	if testAt.Valid {
 		r.LastTestAt = &testAt.Time
 	}
@@ -433,14 +442,14 @@ func (s *Store) UpsertServer(r ServerRecord) error {
 
 	var err error
 	if r.ID == 0 {
-		_, err = s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, server_credential_id, updated_at)
-			VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-			r.ProxyUser, r.TargetHost, r.TargetPort, credentialID)
+		_, err = s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, server_credential_id, legacy_algorithms, updated_at)
+			VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+			r.ProxyUser, r.TargetHost, r.TargetPort, credentialID, boolToInt(r.LegacyAlgorithms))
 	} else {
 		var res sql.Result
 		res, err = s.db.Exec(`UPDATE servers SET proxy_user = ?, target_host = ?, target_port = ?,
-			server_credential_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-			r.ProxyUser, r.TargetHost, r.TargetPort, credentialID, r.ID)
+			server_credential_id = ?, legacy_algorithms = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			r.ProxyUser, r.TargetHost, r.TargetPort, credentialID, boolToInt(r.LegacyAlgorithms), r.ID)
 		if err == nil {
 			if n, _ := res.RowsAffected(); n == 0 {
 				return fmt.Errorf("服务器(id=%d)不存在", r.ID)

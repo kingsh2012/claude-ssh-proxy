@@ -10,6 +10,7 @@ const emptyServer: ServerRecord = {
   target_host: "",
   target_port: 22,
   enabled: true,
+  legacy_algorithms: false,
   client_credential_labels: [],
   last_test_at: null,
   last_test_ok: null,
@@ -296,6 +297,17 @@ export function ServersPage() {
                 value={editing.target_port}
                 onChange={(e) => setEditing({ ...editing, target_port: Number(e.target.value) })}
               />
+            </Field>
+
+            <Field label="兼容旧设备">
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={editing.legacy_algorithms}
+                  onChange={(e) => setEditing({ ...editing, legacy_algorithms: e.target.checked })}
+                />
+                连接时附加弱加密算法兜底(仅用于无法支持现代算法的老旧交换机等设备,会降低该服务器连接的安全性)
+              </label>
             </Field>
 
             <Field label="服务器凭据(提供SSH登录名+密码/私钥)">

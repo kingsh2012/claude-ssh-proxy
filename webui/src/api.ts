@@ -2,6 +2,7 @@ export type AuthType = "password" | "private_key";
 export type ClientAuthType = "public_key" | "password";
 
 export interface ServerRecord {
+  id: number;
   proxy_user: string;
   target_host: string;
   target_port: number;

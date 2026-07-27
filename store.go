@@ -33,7 +33,94 @@ func OpenStore(path string) (*Store, error) {
 	return s, nil
 }
 
+// migrateServersToAutoIncrementID 把老版本的 servers 表(以 proxy_user 文本做主键)
+// 重建成以自增 id 做主键、proxy_user 只是唯一索引的新结构,这样以后改代理登录名
+// 只是普通的 UPDATE,不用担心撞上主键或者拖着子表(server_client_credentials)一起改。
+// 只在检测到老结构(servers 表存在但没有 id 列)时才跑,新装的直接建新结构,跳过这步。
+func (s *Store) migrateServersToAutoIncrementID() error {
+	var tableExists int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='servers'`).Scan(&tableExists); err != nil {
+		return err
+	}
+	if tableExists == 0 {
+		return nil
+	}
+	rows, err := s.db.Query(`PRAGMA table_info(servers)`)
+	if err != nil {
+		return err
+	}
+	hasID := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "id" {
+			hasID = true
+		}
+	}
+	rows.Close()
+	if hasID {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		`ALTER TABLE servers RENAME TO servers_old`,
+		`CREATE TABLE servers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			proxy_user TEXT NOT NULL UNIQUE,
+			target_host TEXT NOT NULL,
+			target_port INTEGER NOT NULL DEFAULT 22,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			server_credential_id INTEGER,
+			last_test_at DATETIME,
+			last_test_ok INTEGER,
+			last_test_error TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO servers(proxy_user, target_host, target_port, enabled, server_credential_id,
+			last_test_at, last_test_ok, last_test_error, created_at, updated_at)
+			SELECT proxy_user, target_host, target_port, enabled, server_credential_id,
+			last_test_at, last_test_ok, last_test_error, created_at, updated_at FROM servers_old`,
+		`DROP TABLE servers_old`,
+	}
+	if _, err := tx.Exec(`SELECT 1 FROM server_client_credentials LIMIT 1`); err == nil {
+		stmts = append(stmts,
+			`ALTER TABLE server_client_credentials RENAME TO server_client_credentials_old`,
+			`CREATE TABLE server_client_credentials (
+				server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+				client_credential_id INTEGER NOT NULL REFERENCES client_credentials(id) ON DELETE CASCADE,
+				PRIMARY KEY (server_id, client_credential_id)
+			)`,
+			`INSERT INTO server_client_credentials(server_id, client_credential_id)
+				SELECT s.id, o.client_credential_id FROM server_client_credentials_old o
+				JOIN servers s ON s.proxy_user = o.proxy_user`,
+			`DROP TABLE server_client_credentials_old`,
+		)
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("迁移 servers 表失败 (%s): %w", stmt, err)
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) migrate() error {
+	if err := s.migrateServersToAutoIncrementID(); err != nil {
+		return err
+	}
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS admin_users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +134,8 @@ func (s *Store) migrate() error {
 			value TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS servers (
-			proxy_user TEXT PRIMARY KEY,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			proxy_user TEXT NOT NULL UNIQUE,
 			target_host TEXT NOT NULL,
 			target_port INTEGER NOT NULL DEFAULT 22,
 			enabled INTEGER NOT NULL DEFAULT 1,
@@ -77,9 +165,9 @@ func (s *Store) migrate() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_client_credentials (
-			proxy_user TEXT NOT NULL REFERENCES servers(proxy_user) ON DELETE CASCADE,
+			server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
 			client_credential_id INTEGER NOT NULL REFERENCES client_credentials(id) ON DELETE CASCADE,
-			PRIMARY KEY (proxy_user, client_credential_id)
+			PRIMARY KEY (server_id, client_credential_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS audit_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,6 +271,7 @@ func (s *Store) SetAdminPassword(username, password string) error {
 // ---------- servers ----------
 
 type ServerRecord struct {
+	ID         int64  `json:"id"`
 	ProxyUser  string `json:"proxy_user"`
 	TargetHost string `json:"target_host"`
 	TargetPort int    `json:"target_port"`
@@ -212,7 +301,7 @@ type ServerRecord struct {
 	ServerCredentialLabel string `json:"server_credential_label,omitempty"` // 只读
 }
 
-const serverSelectColumns = `proxy_user, target_host, target_port, enabled,
+const serverSelectColumns = `id, proxy_user, target_host, target_port, enabled,
 	last_test_at, last_test_ok, last_test_error, server_credential_id`
 
 func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
@@ -222,7 +311,7 @@ func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
 	var testAt sql.NullTime
 	var testOK sql.NullInt64
 	var credID sql.NullInt64
-	if err := scan(&r.ProxyUser, &r.TargetHost, &r.TargetPort, &enabled, &testAt, &testOK, &testErr, &credID); err != nil {
+	if err := scan(&r.ID, &r.ProxyUser, &r.TargetHost, &r.TargetPort, &enabled, &testAt, &testOK, &testErr, &credID); err != nil {
 		return r, err
 	}
 	r.Enabled = enabled != 0
@@ -265,7 +354,7 @@ func (s *Store) resolveServerCredential(r *ServerRecord) error {
 }
 
 func (s *Store) ListServers() ([]ServerRecord, error) {
-	rows, err := s.db.Query(`SELECT ` + serverSelectColumns + ` FROM servers ORDER BY proxy_user`)
+	rows, err := s.db.Query(`SELECT ` + serverSelectColumns + ` FROM servers ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +371,7 @@ func (s *Store) ListServers() ([]ServerRecord, error) {
 	rows.Close()
 
 	for i := range out {
-		labels, err := s.listClientCredentialLabelsForServer(out[i].ProxyUser)
+		labels, err := s.listClientCredentialLabelsForServer(out[i].ID)
 		if err != nil {
 			return nil, err
 		}
@@ -300,7 +389,7 @@ func (s *Store) GetServer(proxyUser string) (*ServerRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	labels, err := s.listClientCredentialLabelsForServer(proxyUser)
+	labels, err := s.listClientCredentialLabelsForServer(r.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -311,10 +400,10 @@ func (s *Store) GetServer(proxyUser string) (*ServerRecord, error) {
 	return &r, nil
 }
 
-func (s *Store) listClientCredentialLabelsForServer(proxyUser string) ([]string, error) {
+func (s *Store) listClientCredentialLabelsForServer(serverID int64) ([]string, error) {
 	rows, err := s.db.Query(`SELECT cc.label FROM client_credentials cc
 		JOIN server_client_credentials rcc ON rcc.client_credential_id = cc.id
-		WHERE rcc.proxy_user = ? ORDER BY cc.label`, proxyUser)
+		WHERE rcc.server_id = ? ORDER BY cc.label`, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -330,22 +419,37 @@ func (s *Store) listClientCredentialLabelsForServer(proxyUser string) ([]string,
 	return labels, nil
 }
 
+// UpsertServer 创建或更新一条服务器记录。r.ID == 0 表示新建;非 0 表示按 id 更新已有记录,
+// 这种情况下允许把 proxy_user 改成别的值(改名),因为子表 server_client_credentials 现在
+// 通过不变的 server_id 关联,不会因为改名而跟丢。
+//
+// enabled 不在这里改:新建时用表的 DEFAULT 1,编辑已有服务器时保留原值,
+// 是否启用由 SetServerEnabled 单独控制,避免保存其他字段时不小心把开关状态带跑偏。
 func (s *Store) UpsertServer(r ServerRecord) error {
 	var credentialID sql.NullInt64
 	if r.ServerCredentialID != nil {
 		credentialID = sql.NullInt64{Int64: *r.ServerCredentialID, Valid: true}
 	}
 
-	// enabled 不在这里改:新建时用表的 DEFAULT 1,编辑已有服务器时保留原值,
-	// 是否启用由 SetServerEnabled 单独控制,避免保存其他字段时不小心把开关状态带跑偏。
-	_, err := s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, server_credential_id, updated_at)
-		VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(proxy_user) DO UPDATE SET
-			target_host = excluded.target_host,
-			target_port = excluded.target_port,
-			server_credential_id = excluded.server_credential_id,
-			updated_at = CURRENT_TIMESTAMP`,
-		r.ProxyUser, r.TargetHost, r.TargetPort, credentialID)
+	var err error
+	if r.ID == 0 {
+		_, err = s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, server_credential_id, updated_at)
+			VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+			r.ProxyUser, r.TargetHost, r.TargetPort, credentialID)
+	} else {
+		var res sql.Result
+		res, err = s.db.Exec(`UPDATE servers SET proxy_user = ?, target_host = ?, target_port = ?,
+			server_credential_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			r.ProxyUser, r.TargetHost, r.TargetPort, credentialID, r.ID)
+		if err == nil {
+			if n, _ := res.RowsAffected(); n == 0 {
+				return fmt.Errorf("服务器(id=%d)不存在", r.ID)
+			}
+		}
+	}
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return fmt.Errorf("代理登录名 %q 已存在", r.ProxyUser)
+	}
 	return err
 }
 
@@ -587,7 +691,9 @@ func (s *Store) GetClientCredential(id int64) (*ClientCredential, error) {
 }
 
 func (s *Store) listServersForClientCredential(id int64) ([]string, error) {
-	rows, err := s.db.Query(`SELECT proxy_user FROM server_client_credentials WHERE client_credential_id = ? ORDER BY proxy_user`, id)
+	rows, err := s.db.Query(`SELECT s.proxy_user FROM server_client_credentials rcc
+		JOIN servers s ON s.id = rcc.server_id
+		WHERE rcc.client_credential_id = ? ORDER BY s.proxy_user`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -608,7 +714,8 @@ func (s *Store) listServersForClientCredential(id int64) ([]string, error) {
 func (s *Store) ListClientCredentialsForServer(proxyUser string) ([]ClientCredential, error) {
 	rows, err := s.db.Query(`SELECT cc.id, cc.label, cc.auth_type, cc.public_key, cc.password_hash FROM client_credentials cc
 		JOIN server_client_credentials rcc ON rcc.client_credential_id = cc.id
-		WHERE rcc.proxy_user = ? ORDER BY cc.label`, proxyUser)
+		JOIN servers s ON s.id = rcc.server_id
+		WHERE s.proxy_user = ? ORDER BY cc.label`, proxyUser)
 	if err != nil {
 		return nil, err
 	}
@@ -646,7 +753,8 @@ func (s *Store) CreateClientCredential(c ClientCredential, proxyUsers []string) 
 		return 0, err
 	}
 	for _, ru := range proxyUsers {
-		if _, err := tx.Exec(`INSERT INTO server_client_credentials(proxy_user, client_credential_id) VALUES(?, ?)`, ru, id); err != nil {
+		if _, err := tx.Exec(`INSERT INTO server_client_credentials(server_id, client_credential_id)
+			SELECT id, ? FROM servers WHERE proxy_user = ?`, id, ru); err != nil {
 			return 0, err
 		}
 	}
@@ -682,7 +790,8 @@ func (s *Store) UpdateClientCredential(id int64, c ClientCredential, proxyUsers 
 		return err
 	}
 	for _, ru := range proxyUsers {
-		if _, err := tx.Exec(`INSERT INTO server_client_credentials(proxy_user, client_credential_id) VALUES(?, ?)`, ru, id); err != nil {
+		if _, err := tx.Exec(`INSERT INTO server_client_credentials(server_id, client_credential_id)
+			SELECT id, ? FROM servers WHERE proxy_user = ?`, id, ru); err != nil {
 			return err
 		}
 	}

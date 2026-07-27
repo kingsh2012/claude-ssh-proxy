@@ -5,6 +5,7 @@ import { MultiSelectDropdown, SingleSelectDropdown } from "./MultiSelectDropdown
 import { Tooltip } from "./Tooltip";
 
 const emptyServer: ServerRecord = {
+  id: 0,
   proxy_user: "",
   target_host: "",
   target_port: 22,
@@ -118,7 +119,7 @@ export function ServersPage() {
   }
 
   function duplicate(s: ServerRecord) {
-    setEditing({ ...s, proxy_user: "" });
+    setEditing({ ...s, id: 0 });
     setSelectedCredentialIds(credentialIdsForServer(s.proxy_user));
     setIsNew(true);
     setError("");
@@ -274,7 +275,6 @@ export function ServersPage() {
 
             <Field label="代理登录名(唯一)">
               <input
-                disabled={!isNew}
                 className="input"
                 value={editing.proxy_user}
                 onChange={(e) => setEditing({ ...editing, proxy_user: e.target.value })}
@@ -368,6 +368,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function TestStatus({ server }: { server: ServerRecord }) {
+  const [copied, setCopied] = useState(false);
+
   if (!server.last_test_at || server.last_test_ok === null) {
     return <span className="text-xs text-slate-400">尚未测试</span>;
   }
@@ -383,10 +385,28 @@ function TestStatus({ server }: { server: ServerRecord }) {
     );
   }
 
+  const errorText = server.last_test_error || "未知错误";
+
+  async function copyError() {
+    try {
+      await navigator.clipboard.writeText(errorText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // 剪贴板权限被拒绝之类的情况,静默忽略,用户仍然可以从 Tooltip 里看到原文。
+    }
+  }
+
   return (
     <div className="text-xs">
-      <Tooltip text={server.last_test_error || "未知错误"}>
-        <span className="cursor-help text-red-600 underline decoration-dotted dark:text-red-400">失败</span>
+      <Tooltip text={errorText}>
+        <button
+          type="button"
+          onClick={copyError}
+          className="cursor-pointer text-red-600 underline decoration-dotted hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+        >
+          {copied ? "已复制" : "失败(点击复制)"}
+        </button>
       </Tooltip>
       <div className="text-slate-400">{time}</div>
     </div>

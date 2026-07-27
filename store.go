@@ -354,7 +354,7 @@ func (s *Store) resolveServerCredential(r *ServerRecord) error {
 }
 
 func (s *Store) ListServers() ([]ServerRecord, error) {
-	rows, err := s.db.Query(`SELECT ` + serverSelectColumns + ` FROM servers ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT ` + serverSelectColumns + ` FROM servers ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}

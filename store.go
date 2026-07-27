@@ -194,7 +194,39 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("迁移失败 (%s): %w", stmt, err)
 		}
 	}
+	// legacy_algorithms 是在已有生产数据之后才加的列,CREATE TABLE IF NOT EXISTS 对已存在的
+	// 旧表不会补列,导致查询报 "no such column" 看起来像数据全没了(v0.0.19 事故)。
+	// 之后新增列都要走 ensureColumn,不能再假设"删库重建"是安全的。
+	if err := s.ensureColumn("servers", "legacy_algorithms", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	return nil
+}
+
+// ensureColumn 给已存在的旧库补列(SQLite 的 ALTER TABLE 不支持 IF NOT EXISTS)。
+func (s *Store) ensureColumn(table, column, decl string) error {
+	rows, err := s.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notNull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil // 已存在
+		}
+	}
+	rows.Close()
+
+	_, err = s.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, decl))
+	return err
 }
 
 // ---------- settings ----------

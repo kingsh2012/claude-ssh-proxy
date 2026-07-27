@@ -50,10 +50,18 @@ host key: `ssh-rsa`、`ssh-dss`),而 `golang.org/x/crypto/ssh` 默认只启用�
 
 已按上面的方案落地:
 
-- `store.go`:`servers` 表加了 `legacy_algorithms INTEGER NOT NULL DEFAULT 0` 列
-  (直接写进 `CREATE TABLE IF NOT EXISTS`,沿用本项目"不用 ALTER TABLE 兼容旧库,
-  改表就删库重建"的既有约定,见 commit `d48a4b3`);`ServerRecord` 加了
-  `LegacyAlgorithms bool` 字段;`UpsertServer`/`scanServer` 同步读写这个字段
+- `store.go`:`servers` 表加了 `legacy_algorithms INTEGER NOT NULL DEFAULT 0` 列;
+  `ServerRecord` 加了 `LegacyAlgorithms bool` 字段;`UpsertServer`/`scanServer`
+  同步读写这个字段
+
+**事故记录(v0.0.19)**:最初直接把这列写进 `CREATE TABLE IF NOT EXISTS`,沿用了
+本项目更早时候"不用 ALTER TABLE 兼容旧库,改表就删库重建"的约定(见 commit
+`d48a4b3`,当时还没有真实生产数据)。但生产库已经建过表,`CREATE TABLE IF NOT
+EXISTS` 对已存在的表不会补列,导致升级后 `SELECT ... legacy_algorithms` 报
+`no such column`,服务器列表整个查不出来,表现得像数据被删了。恢复方式是手动
+`ALTER TABLE servers ADD COLUMN legacy_algorithms ...` 补列(数据本身没丢)。
+之后恢复了 `ensureColumn` 辅助函数,`migrate()` 里对这一列做了补丁式迁移。
+**以后给已有表加列必须走 `ensureColumn`,不能再假设可以直接删库重建。**
 - `proxy.go` 的 `dialUpstreamTimeout`:只有 `server.LegacyAlgorithms == true` 时才在
   `ssh.SupportedAlgorithms()` 的默认算法后面追加 `ssh.InsecureAlgorithms()` 里的
   Ciphers、KeyExchanges、HostKeys(涵盖 CBC/3DES、老 KEX、ssh-dss 等),未勾选的

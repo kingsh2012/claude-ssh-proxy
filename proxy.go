@@ -139,11 +139,12 @@ func dialUpstreamTimeout(server ServerRecord, timeout time.Duration) (*ssh.Clien
 	var authMethods []ssh.AuthMethod
 	switch server.AuthType {
 	case "password":
-		// 有些目标机器(比如 ESXi 内置的 SSH 服务)不支持标准的 "password" 认证方式,
-		// 只支持 "keyboard-interactive"(客户端自己用 ssh 命令行连时会自动降级到这个方式,
-		// 表现上看起来就是问一遍密码)。两种方式都注册上,服务端支持哪种就用哪种。
+		// 有些目标机器(比如 ESXi 内置的 SSH 服务、部分网络设备如 H3C 交换机)不支持标准的
+		// "password" 认证方式,只支持 "keyboard-interactive"。OpenSSH 客户端默认的认证方式
+		// 优先级是 keyboard-interactive 排在 password 前面,这里保持一致的顺序:先试
+		// keyboard-interactive,不行再退回 password。部分设备一次连接只允许尝试一种方式,
+		// 顺序反了会导致 password 尝试失败后直接断线,连不上本来能连的设备。
 		authMethods = append(authMethods,
-			ssh.Password(server.AuthPassword),
 			ssh.KeyboardInteractive(func(name, instruction string, questions []string, echos []bool) ([]string, error) {
 				answers := make([]string, len(questions))
 				for i := range answers {
@@ -151,6 +152,7 @@ func dialUpstreamTimeout(server ServerRecord, timeout time.Duration) (*ssh.Clien
 				}
 				return answers, nil
 			}),
+			ssh.Password(server.AuthPassword),
 		)
 	case "private_key":
 		signer, err := parsePrivateKey(server.AuthPrivateKey, server.AuthPrivateKeyPassphrase)

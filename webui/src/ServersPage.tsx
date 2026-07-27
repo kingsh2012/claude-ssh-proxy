@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type ClientCredential, type ServerRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
 import { MultiSelectDropdown, SingleSelectDropdown } from "./MultiSelectDropdown";
@@ -368,7 +368,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function TestStatus({ server }: { server: ServerRecord }) {
-  const [copied, setCopied] = useState(false);
+  const [showError, setShowError] = useState(false);
+  const errorInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showError) {
+      errorInputRef.current?.focus();
+      errorInputRef.current?.select();
+    }
+  }, [showError]);
 
   if (!server.last_test_at || server.last_test_ok === null) {
     return <span className="text-xs text-slate-400">尚未测试</span>;
@@ -387,28 +395,30 @@ function TestStatus({ server }: { server: ServerRecord }) {
 
   const errorText = server.last_test_error || "未知错误";
 
-  async function copyError() {
-    try {
-      await navigator.clipboard.writeText(errorText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // 剪贴板权限被拒绝之类的情况,静默忽略,用户仍然可以从 Tooltip 里看到原文。
-    }
-  }
-
   return (
     <div className="text-xs">
       <Tooltip text={errorText}>
         <button
           type="button"
-          onClick={copyError}
+          onClick={() => setShowError((v) => !v)}
           className="cursor-pointer text-red-600 underline decoration-dotted hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
         >
-          {copied ? "已复制" : "失败(点击复制)"}
+          失败(点击查看)
         </button>
       </Tooltip>
       <div className="text-slate-400">{time}</div>
+      {showError && (
+        // navigator.clipboard 在非 HTTPS/权限受限的环境下会静默失败,所以这里不依赖它,
+        // 而是给一个 readOnly 的 input,点开就自动全选,不管剪贴板 API 能不能用,
+        // 用户都能靠 Ctrl+C 手动复制到内容。
+        <input
+          ref={errorInputRef}
+          readOnly
+          value={errorText}
+          onFocus={(e) => e.currentTarget.select()}
+          className="mt-1 w-64 rounded border border-slate-300 bg-white px-1.5 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        />
+      )}
     </div>
   );
 }

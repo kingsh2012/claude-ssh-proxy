@@ -73,9 +73,8 @@ func (a *auditSession) noteRequest(req *ssh.Request) {
 		}
 	}
 	needInsert := a.dbID == 0 && a.eventType != ""
-	var startRecord AuditLog
 	if needInsert {
-		startRecord = AuditLog{
+		startRecord := AuditLog{
 			ProxyUser:             a.proxyUser,
 			RemoteAddr:            a.remoteAddr,
 			TargetHost:            a.targetHost,
@@ -85,19 +84,15 @@ func (a *auditSession) noteRequest(req *ssh.Request) {
 			Status:                "running",
 			ClientCredentialLabel: a.clientCredentialLabel,
 		}
-	}
-	a.mu.Unlock()
-
-	if needInsert {
 		id, err := a.store.InsertAuditLog(startRecord)
 		if err != nil {
+			a.mu.Unlock()
 			log.Printf("写入审计日志失败: %v", err)
 			return
 		}
-		a.mu.Lock()
 		a.dbID = id
-		a.mu.Unlock()
 	}
+	a.mu.Unlock()
 }
 
 // Write 让 auditSession 可以作为 io.Writer 接到 TeeReader 上,捕获 shell 阶段客户端敲的内容。

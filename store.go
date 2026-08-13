@@ -1,10 +1,16 @@
 package main
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,24 +19,142 @@ import (
 )
 
 type Store struct {
-	db *sql.DB
+	db         *sql.DB
+	secretAEAD cipher.AEAD
 }
 
 func OpenStore(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	dsn := sqliteDSN(path)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库失败: %w", err)
 	}
+	// 旧表重建迁移期间不能启用外键,否则重命名/删除父表可能触发级联删除。
+	// 先固定使用一个连接完成迁移,之后再开启连接池;DSN 会确保新连接也启用外键。
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("临时关闭 SQLite 外键失败: %w", err)
+	}
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("设置 WAL 模式失败: %w", err)
 	}
-	db.SetMaxOpenConns(8)
 
-	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
+	key, err := loadOrCreateSecretKey(path)
+	if err != nil {
+		db.Close()
 		return nil, err
 	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("初始化凭据加密失败: %w", err)
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("初始化凭据加密失败: %w", err)
+	}
+
+	s := &Store{db: db, secretAEAD: aead}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.migratePlaintextSecrets(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("启用 SQLite 外键失败: %w", err)
+	}
+	var foreignKeys int
+	if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&foreignKeys); err != nil || foreignKeys != 1 {
+		db.Close()
+		return nil, fmt.Errorf("SQLite 外键未能启用")
+	}
+	db.SetMaxOpenConns(8)
 	return s, nil
+}
+
+func sqliteDSN(path string) string {
+	dsn := path
+	if path == ":memory:" {
+		dsn = "file::memory:?cache=shared"
+	} else if !strings.HasPrefix(path, "file:") {
+		dsn = "file:" + filepath.ToSlash(path)
+	}
+	separator := "?"
+	if strings.Contains(dsn, "?") {
+		separator = "&"
+	}
+	return dsn + separator + "_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+}
+
+func loadOrCreateSecretKey(dbPath string) ([]byte, error) {
+	key := make([]byte, 32)
+	if dbPath == ":memory:" || strings.HasPrefix(dbPath, "file::memory:") {
+		if _, err := rand.Read(key); err != nil {
+			return nil, fmt.Errorf("生成凭据加密密钥失败: %w", err)
+		}
+		return key, nil
+	}
+	keyPath := strings.TrimPrefix(strings.SplitN(dbPath, "?", 2)[0], "file:") + ".key"
+	data, err := os.ReadFile(keyPath)
+	if err == nil {
+		if len(data) != len(key) {
+			return nil, fmt.Errorf("凭据加密密钥 %s 长度无效", keyPath)
+		}
+		if err := os.Chmod(keyPath, 0600); err != nil {
+			return nil, fmt.Errorf("收紧凭据加密密钥权限失败: %w", err)
+		}
+		return data, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("读取凭据加密密钥失败: %w", err)
+	}
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("生成凭据加密密钥失败: %w", err)
+	}
+	if err := os.WriteFile(keyPath, key, 0600); err != nil {
+		return nil, fmt.Errorf("写入凭据加密密钥失败: %w", err)
+	}
+	return key, nil
+}
+
+const encryptedSecretPrefix = "enc:v1:"
+
+func (s *Store) encryptSecret(value string) (string, error) {
+	if value == "" {
+		return value, nil
+	}
+	nonce := make([]byte, s.secretAEAD.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	sealed := s.secretAEAD.Seal(nonce, nonce, []byte(value), []byte(encryptedSecretPrefix))
+	return encryptedSecretPrefix + base64.RawStdEncoding.EncodeToString(sealed), nil
+}
+
+func (s *Store) decryptSecret(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(value, encryptedSecretPrefix) {
+		return value, nil
+	}
+	sealed, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(value, encryptedSecretPrefix))
+	if err != nil || len(sealed) < s.secretAEAD.NonceSize() {
+		return "", fmt.Errorf("凭据密文格式无效")
+	}
+	nonce := sealed[:s.secretAEAD.NonceSize()]
+	plaintext, err := s.secretAEAD.Open(nil, nonce, sealed[s.secretAEAD.NonceSize():], []byte(encryptedSecretPrefix))
+	if err != nil {
+		return "", fmt.Errorf("凭据解密失败: %w", err)
+	}
+	return string(plaintext), nil
 }
 
 // migrateServersToAutoIncrementID 把老版本的 servers 表(以 proxy_user 文本做主键)
@@ -140,6 +264,10 @@ func (s *Store) migrate() error {
 			target_port INTEGER NOT NULL DEFAULT 22,
 			enabled INTEGER NOT NULL DEFAULT 1,
 			legacy_algorithms INTEGER NOT NULL DEFAULT 0,
+			host_key_fingerprint TEXT NOT NULL DEFAULT '',
+			route_mode TEXT NOT NULL DEFAULT 'fixed',
+			port_min INTEGER NOT NULL DEFAULT 1,
+			port_max INTEGER NOT NULL DEFAULT 65535,
 			server_credential_id INTEGER,
 			last_test_at DATETIME,
 			last_test_ok INTEGER,
@@ -200,7 +328,83 @@ func (s *Store) migrate() error {
 	if err := s.ensureColumn("servers", "legacy_algorithms", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
+	if err := s.ensureColumn("servers", "host_key_fingerprint", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("servers", "route_mode", "TEXT NOT NULL DEFAULT 'fixed'"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("servers", "port_min", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("servers", "port_max", "INTEGER NOT NULL DEFAULT 65535"); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *Store) migratePlaintextSecrets() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`SELECT id, auth_password, auth_private_key, auth_private_key_passphrase FROM server_credentials`)
+	if err != nil {
+		return err
+	}
+	type encryptedCredential struct {
+		id         int64
+		password   string
+		privateKey string
+		passphrase string
+	}
+	updates := []encryptedCredential{}
+	for rows.Next() {
+		var id int64
+		var password, privateKey, passphrase sql.NullString
+		if err := rows.Scan(&id, &password, &privateKey, &passphrase); err != nil {
+			rows.Close()
+			return err
+		}
+		pw, err := s.encryptSecretForMigration(password.String)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		pk, err := s.encryptSecretForMigration(privateKey.String)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		pp, err := s.encryptSecretForMigration(passphrase.String)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		updates = append(updates, encryptedCredential{id, pw, pk, pp})
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, update := range updates {
+		if _, err := tx.Exec(`UPDATE server_credentials SET auth_password = ?, auth_private_key = ?, auth_private_key_passphrase = ? WHERE id = ?`,
+			update.password, update.privateKey, update.passphrase, update.id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) encryptSecretForMigration(value string) (string, error) {
+	if strings.HasPrefix(value, encryptedSecretPrefix) {
+		if _, err := s.decryptSecret(value); err != nil {
+			return "", err
+		}
+		return value, nil
+	}
+	return s.encryptSecret(value)
 }
 
 // ensureColumn 给已存在的旧库补列(SQLite 的 ALTER TABLE 不支持 IF NOT EXISTS)。
@@ -308,6 +512,9 @@ type ServerRecord struct {
 	ProxyUser  string `json:"proxy_user"`
 	TargetHost string `json:"target_host"`
 	TargetPort int    `json:"target_port"`
+	RouteMode  string `json:"route_mode"` // fixed | dynamic_port
+	PortMin    int    `json:"port_min"`
+	PortMax    int    `json:"port_max"`
 
 	// 下面这些认证相关字段都是只读的,完全来自关联的"服务器凭据"(见 ServerCredentialID),
 	// 不能通过 UpsertServer 直接设置;服务器本身不再存密码/私钥/目标用户名。
@@ -324,7 +531,8 @@ type ServerRecord struct {
 	// diffie-hellman-group1-sha1、ssh-rsa host key)。默认不启用这些不安全算法,
 	// 只有勾选了这个开关的服务器,连接时才会额外带上它们做兜底协商,避免所有服务器
 	// 都被动接受弱算法、扩大安全面。
-	LegacyAlgorithms bool `json:"legacy_algorithms"`
+	LegacyAlgorithms   bool   `json:"legacy_algorithms"`
+	HostKeyFingerprint string `json:"host_key_fingerprint,omitempty"`
 
 	// 只读,展示当前有哪些客户端凭据关联到了这条服务器;凭据本身在"客户端凭据"页面管理。
 	ClientCredentialLabels []string `json:"client_credential_labels"`
@@ -340,7 +548,7 @@ type ServerRecord struct {
 	ServerCredentialLabel string `json:"server_credential_label,omitempty"` // 只读
 }
 
-const serverSelectColumns = `id, proxy_user, target_host, target_port, enabled, legacy_algorithms,
+const serverSelectColumns = `id, proxy_user, target_host, target_port, route_mode, port_min, port_max, enabled, legacy_algorithms, host_key_fingerprint,
 	last_test_at, last_test_ok, last_test_error, server_credential_id`
 
 func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
@@ -351,7 +559,7 @@ func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
 	var testAt sql.NullTime
 	var testOK sql.NullInt64
 	var credID sql.NullInt64
-	if err := scan(&r.ID, &r.ProxyUser, &r.TargetHost, &r.TargetPort, &enabled, &legacyAlgorithms, &testAt, &testOK, &testErr, &credID); err != nil {
+	if err := scan(&r.ID, &r.ProxyUser, &r.TargetHost, &r.TargetPort, &r.RouteMode, &r.PortMin, &r.PortMax, &enabled, &legacyAlgorithms, &r.HostKeyFingerprint, &testAt, &testOK, &testErr, &credID); err != nil {
 		return r, err
 	}
 	r.Enabled = enabled != 0
@@ -388,9 +596,18 @@ func (s *Store) resolveServerCredential(r *ServerRecord) error {
 	r.ServerCredentialLabel = label
 	r.TargetUser = targetUser
 	r.AuthType = authType
-	r.AuthPassword = pw.String
-	r.AuthPrivateKey = pk.String
-	r.AuthPrivateKeyPassphrase = pp.String
+	r.AuthPassword, err = s.decryptSecret(pw.String)
+	if err != nil {
+		return fmt.Errorf("解密服务器凭据 %d 的密码失败: %w", *r.ServerCredentialID, err)
+	}
+	r.AuthPrivateKey, err = s.decryptSecret(pk.String)
+	if err != nil {
+		return fmt.Errorf("解密服务器凭据 %d 的私钥失败: %w", *r.ServerCredentialID, err)
+	}
+	r.AuthPrivateKeyPassphrase, err = s.decryptSecret(pp.String)
+	if err != nil {
+		return fmt.Errorf("解密服务器凭据 %d 的私钥密码失败: %w", *r.ServerCredentialID, err)
+	}
 	return nil
 }
 
@@ -441,6 +658,56 @@ func (s *Store) GetServer(proxyUser string) (*ServerRecord, error) {
 	return &r, nil
 }
 
+// ResolveServer 把客户端实际使用的 SSH 登录名解析为一条固定或动态端口路由。
+// 固定登录名始终优先;动态规则同时匹配时使用前缀最长的一条。
+func (s *Store) ResolveServer(loginUser string) (*ServerRecord, error) {
+	row := s.db.QueryRow(`SELECT `+serverSelectColumns+` FROM servers WHERE route_mode = 'fixed' AND proxy_user = ?`, loginUser)
+	r, err := scanServer(row.Scan)
+	if err == nil {
+		return s.finishResolvedServer(r, loginUser)
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	rows, err := s.db.Query(`SELECT ` + serverSelectColumns + ` FROM servers WHERE route_mode = 'dynamic_port' ORDER BY LENGTH(proxy_user) DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		candidate, err := scanServer(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		prefix := strings.TrimSuffix(candidate.ProxyUser, "${PORT}")
+		if prefix == candidate.ProxyUser || !strings.HasPrefix(loginUser, prefix) {
+			continue
+		}
+		portText := strings.TrimPrefix(loginUser, prefix)
+		port, err := strconv.Atoi(portText)
+		if err != nil || strconv.Itoa(port) != portText || port < candidate.PortMin || port > candidate.PortMax {
+			continue
+		}
+		candidate.TargetPort = port
+		return s.finishResolvedServer(candidate, loginUser)
+	}
+	return nil, sql.ErrNoRows
+}
+
+func (s *Store) finishResolvedServer(r ServerRecord, loginUser string) (*ServerRecord, error) {
+	r.ProxyUser = loginUser
+	labels, err := s.listClientCredentialLabelsForServer(r.ID)
+	if err != nil {
+		return nil, err
+	}
+	r.ClientCredentialLabels = labels
+	if err := s.resolveServerCredential(&r); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 func (s *Store) listClientCredentialLabelsForServer(serverID int64) ([]string, error) {
 	rows, err := s.db.Query(`SELECT cc.label FROM client_credentials cc
 		JOIN server_client_credentials rcc ON rcc.client_credential_id = cc.id
@@ -467,6 +734,15 @@ func (s *Store) listClientCredentialLabelsForServer(serverID int64) ([]string, e
 // enabled 不在这里改:新建时用表的 DEFAULT 1,编辑已有服务器时保留原值,
 // 是否启用由 SetServerEnabled 单独控制,避免保存其他字段时不小心把开关状态带跑偏。
 func (s *Store) UpsertServer(r ServerRecord) error {
+	if r.RouteMode == "" {
+		r.RouteMode = "fixed"
+	}
+	if r.PortMin == 0 {
+		r.PortMin = 1
+	}
+	if r.PortMax == 0 {
+		r.PortMax = 65535
+	}
 	var credentialID sql.NullInt64
 	if r.ServerCredentialID != nil {
 		credentialID = sql.NullInt64{Int64: *r.ServerCredentialID, Valid: true}
@@ -474,14 +750,14 @@ func (s *Store) UpsertServer(r ServerRecord) error {
 
 	var err error
 	if r.ID == 0 {
-		_, err = s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, server_credential_id, legacy_algorithms, updated_at)
-			VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-			r.ProxyUser, r.TargetHost, r.TargetPort, credentialID, boolToInt(r.LegacyAlgorithms))
+		_, err = s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, route_mode, port_min, port_max, server_credential_id, legacy_algorithms, host_key_fingerprint, updated_at)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+			r.ProxyUser, r.TargetHost, r.TargetPort, r.RouteMode, r.PortMin, r.PortMax, credentialID, boolToInt(r.LegacyAlgorithms), r.HostKeyFingerprint)
 	} else {
 		var res sql.Result
-		res, err = s.db.Exec(`UPDATE servers SET proxy_user = ?, target_host = ?, target_port = ?,
-			server_credential_id = ?, legacy_algorithms = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-			r.ProxyUser, r.TargetHost, r.TargetPort, credentialID, boolToInt(r.LegacyAlgorithms), r.ID)
+		res, err = s.db.Exec(`UPDATE servers SET proxy_user = ?, target_host = ?, target_port = ?, route_mode = ?, port_min = ?, port_max = ?,
+			server_credential_id = ?, legacy_algorithms = ?, host_key_fingerprint = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			r.ProxyUser, r.TargetHost, r.TargetPort, r.RouteMode, r.PortMin, r.PortMax, credentialID, boolToInt(r.LegacyAlgorithms), r.HostKeyFingerprint, r.ID)
 		if err == nil {
 			if n, _ := res.RowsAffected(); n == 0 {
 				return fmt.Errorf("服务器(id=%d)不存在", r.ID)
@@ -549,7 +825,21 @@ func (s *Store) ListServerCredentials() ([]ServerCredential, error) {
 			rows.Close()
 			return nil, err
 		}
-		c.AuthPassword, c.AuthPrivateKey, c.AuthPrivateKeyPassphrase = pw.String, pk.String, pp.String
+		c.AuthPassword, err = s.decryptSecret(pw.String)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		c.AuthPrivateKey, err = s.decryptSecret(pk.String)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		c.AuthPrivateKeyPassphrase, err = s.decryptSecret(pp.String)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
 		out = append(out, c)
 	}
 	rows.Close()
@@ -573,7 +863,18 @@ func (s *Store) GetServerCredential(id int64) (*ServerCredential, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.AuthPassword, c.AuthPrivateKey, c.AuthPrivateKeyPassphrase = pw.String, pk.String, pp.String
+	c.AuthPassword, err = s.decryptSecret(pw.String)
+	if err != nil {
+		return nil, err
+	}
+	c.AuthPrivateKey, err = s.decryptSecret(pk.String)
+	if err != nil {
+		return nil, err
+	}
+	c.AuthPrivateKeyPassphrase, err = s.decryptSecret(pp.String)
+	if err != nil {
+		return nil, err
+	}
 	proxyUsers, err := s.listServersUsingServerCredential(id)
 	if err != nil {
 		return nil, err
@@ -600,9 +901,21 @@ func (s *Store) listServersUsingServerCredential(id int64) ([]string, error) {
 }
 
 func (s *Store) CreateServerCredential(c ServerCredential) (int64, error) {
+	password, err := s.encryptSecret(c.AuthPassword)
+	if err != nil {
+		return 0, err
+	}
+	privateKey, err := s.encryptSecret(c.AuthPrivateKey)
+	if err != nil {
+		return 0, err
+	}
+	passphrase, err := s.encryptSecret(c.AuthPrivateKeyPassphrase)
+	if err != nil {
+		return 0, err
+	}
 	res, err := s.db.Exec(`INSERT INTO server_credentials(label, target_user, auth_type, auth_password, auth_private_key, auth_private_key_passphrase)
 		VALUES(?, ?, ?, ?, ?, ?)`,
-		c.Label, c.TargetUser, c.AuthType, c.AuthPassword, c.AuthPrivateKey, c.AuthPrivateKeyPassphrase)
+		c.Label, c.TargetUser, c.AuthType, password, privateKey, passphrase)
 	if err != nil {
 		return 0, err
 	}
@@ -610,9 +923,21 @@ func (s *Store) CreateServerCredential(c ServerCredential) (int64, error) {
 }
 
 func (s *Store) UpdateServerCredential(id int64, c ServerCredential) error {
+	password, err := s.encryptSecret(c.AuthPassword)
+	if err != nil {
+		return err
+	}
+	privateKey, err := s.encryptSecret(c.AuthPrivateKey)
+	if err != nil {
+		return err
+	}
+	passphrase, err := s.encryptSecret(c.AuthPrivateKeyPassphrase)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.Exec(`UPDATE server_credentials SET label = ?, target_user = ?, auth_type = ?, auth_password = ?,
 		auth_private_key = ?, auth_private_key_passphrase = ? WHERE id = ?`,
-		c.Label, c.TargetUser, c.AuthType, c.AuthPassword, c.AuthPrivateKey, c.AuthPrivateKeyPassphrase, id)
+		c.Label, c.TargetUser, c.AuthType, password, privateKey, passphrase, id)
 	if err != nil {
 		return err
 	}
@@ -753,10 +1078,17 @@ func (s *Store) listServersForClientCredential(id int64) ([]string, error) {
 // ListClientCredentialsForServer 返回关联到某个服务器的所有客户端凭据,供登录认证时比对使用
 // (公钥类型比对 PublicKey,密码类型比对内部的 passwordHash)。
 func (s *Store) ListClientCredentialsForServer(proxyUser string) ([]ClientCredential, error) {
+	server, err := s.ResolveServer(proxyUser)
+	if err != nil {
+		return nil, err
+	}
+	return s.ListClientCredentialsForServerID(server.ID)
+}
+
+func (s *Store) ListClientCredentialsForServerID(serverID int64) ([]ClientCredential, error) {
 	rows, err := s.db.Query(`SELECT cc.id, cc.label, cc.auth_type, cc.public_key, cc.password_hash FROM client_credentials cc
 		JOIN server_client_credentials rcc ON rcc.client_credential_id = cc.id
-		JOIN servers s ON s.id = rcc.server_id
-		WHERE s.proxy_user = ? ORDER BY cc.label`, proxyUser)
+		WHERE rcc.server_id = ? ORDER BY cc.label`, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -928,16 +1260,34 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-func (s *Store) ListAuditLogs(limit int, proxyUser string) ([]AuditLog, error) {
+type AuditFilters struct {
+	ProxyUser             string
+	TargetHost            string
+	ClientCredentialLabel string
+}
+
+func (s *Store) ListAuditLogs(limit int, filters AuditFilters) ([]AuditLog, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
 	query := `SELECT id, ts, proxy_user, remote_addr, target_host, target_port, event_type, command, output, detail, exit_status, truncated, status, client_credential_label
 		FROM audit_logs`
 	args := []any{}
-	if proxyUser != "" {
-		query += ` WHERE proxy_user = ?`
-		args = append(args, proxyUser)
+	conditions := []string{}
+	if filters.ProxyUser != "" {
+		conditions = append(conditions, `proxy_user = ?`)
+		args = append(args, filters.ProxyUser)
+	}
+	if filters.TargetHost != "" {
+		conditions = append(conditions, `target_host = ?`)
+		args = append(args, filters.TargetHost)
+	}
+	if filters.ClientCredentialLabel != "" {
+		conditions = append(conditions, `client_credential_label = ?`)
+		args = append(args, filters.ClientCredentialLabel)
+	}
+	if len(conditions) > 0 {
+		query += ` WHERE ` + strings.Join(conditions, ` AND `)
 	}
 	query += ` ORDER BY id DESC LIMIT ?`
 	args = append(args, limit)

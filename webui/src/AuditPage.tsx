@@ -4,11 +4,13 @@ import { api, type AuditLog } from "./api";
 export function AuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [proxyUser, setProxyUser] = useState("");
+  const [targetHost, setTargetHost] = useState("");
+  const [clientCredentialLabel, setClientCredentialLabel] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   async function load() {
-    setLogs((await api.listAudit(200, proxyUser)) ?? []);
+    setLogs((await api.listAudit(200, { proxyUser, targetHost, clientCredentialLabel })) ?? []);
   }
 
   async function refresh() {
@@ -25,18 +27,30 @@ export function AuditPage() {
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proxyUser]);
+  }, [proxyUser, targetHost, clientCredentialLabel]);
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">审计日志</h2>
-        <div className="flex gap-2">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <input
-            className="input max-w-xs"
+            className="input"
             placeholder="按代理登录名过滤"
             value={proxyUser}
             onChange={(e) => setProxyUser(e.target.value)}
+          />
+          <input
+            className="input"
+            placeholder="按目标服务器过滤"
+            value={targetHost}
+            onChange={(e) => setTargetHost(e.target.value)}
+          />
+          <input
+            className="input"
+            placeholder="按客户端凭据过滤"
+            value={clientCredentialLabel}
+            onChange={(e) => setClientCredentialLabel(e.target.value)}
           />
           <button
             onClick={refresh}

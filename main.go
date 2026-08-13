@@ -14,7 +14,7 @@ var version = "dev"
 func main() {
 	dbPath := flag.String("db", "claude-ssh-proxy.db", "SQLite 数据库文件路径")
 	hostKeyPath := flag.String("host-key", "host_key", "proxy 自身 SSH host key 文件路径")
-	webAddr := flag.String("web-addr", ":8080", "Web 管理后台监听地址")
+	webAddr := flag.String("web-addr", "127.0.0.1:8080", "Web 管理后台监听地址")
 	adminUser := flag.String("bootstrap-admin-user", "admin", "首次启动时自动创建的管理员用户名(仅当数据库里还没有任何管理员账号时生效)")
 	adminPassword := flag.String("bootstrap-admin-password", "admin", "首次启动时自动创建的管理员初始密码(仅当数据库里还没有任何管理员账号时生效,登录后会被强制要求修改)")
 	showVersion := flag.Bool("version", false, "打印版本号并退出")

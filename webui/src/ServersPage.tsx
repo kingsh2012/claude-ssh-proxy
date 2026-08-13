@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type ClientCredential, type ServerRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
-import { MultiSelectDropdown, SingleSelectDropdown } from "./MultiSelectDropdown";
+import { MultiSelectDropdown, SelectDropdown, SingleSelectDropdown } from "./MultiSelectDropdown";
 import { Tooltip } from "./Tooltip";
 
 const emptyServer: ServerRecord = {
@@ -9,8 +9,12 @@ const emptyServer: ServerRecord = {
   proxy_user: "",
   target_host: "",
   target_port: 22,
+  route_mode: "fixed",
+  port_min: 1,
+  port_max: 65535,
   enabled: true,
   legacy_algorithms: false,
+  host_key_fingerprint: "",
   client_credential_labels: [],
   last_test_at: null,
   last_test_ok: null,
@@ -194,6 +198,8 @@ export function ServersPage() {
             <tr>
               <th className="px-4 py-2">代理登录名</th>
               <th className="px-4 py-2">目标SSH服务器</th>
+              <th className="px-4 py-2">路由模式</th>
+              <th className="px-4 py-2">连接配置</th>
               <th className="px-4 py-2">状态</th>
               <th className="px-4 py-2">连接测试</th>
               <th className="px-4 py-2">绑定的服务器凭据</th>
@@ -206,7 +212,43 @@ export function ServersPage() {
               <tr key={s.proxy_user} className={`text-slate-800 dark:text-slate-200 ${s.enabled ? "" : "opacity-60"}`}>
                 <td className="px-4 py-2 font-mono">{s.proxy_user}</td>
                 <td className="px-4 py-2 font-mono">
-                  {s.target_host}:{s.target_port}
+                  {s.target_host}:{s.route_mode === "dynamic_port" ? "${PORT}" : s.target_port}
+                </td>
+                <td className="px-4 py-2 whitespace-nowrap">
+                  {s.route_mode === "dynamic_port" ? (
+                    <div>
+                      <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-xs text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300">
+                        动态端口
+                      </span>
+                      <div className="mt-1 text-xs text-slate-400">{s.port_min}-{s.port_max}</div>
+                    </div>
+                  ) : (
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      固定端口
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-2 whitespace-nowrap">
+                  <div className="flex flex-col items-start gap-1">
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-xs ${
+                        s.legacy_algorithms
+                          ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                          : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                      }`}
+                    >
+                      {s.legacy_algorithms ? "兼容旧设备" : "现代算法"}
+                    </span>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-xs ${
+                        s.host_key_fingerprint
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                          : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                      }`}
+                    >
+                      {s.host_key_fingerprint ? "Host Key 已校验" : "Host Key 未校验"}
+                    </span>
+                  </div>
                 </td>
                 <td className="px-4 py-2">
                   {s.enabled ? (
@@ -216,7 +258,11 @@ export function ServersPage() {
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  <TestStatus server={s} />
+                  {s.route_mode === "dynamic_port" ? (
+                    <span className="text-xs text-slate-400">使用实际登录名测试</span>
+                  ) : (
+                    <TestStatus server={s} />
+                  )}
                 </td>
                 <td className="px-4 py-2">
                   {s.server_credential_id != null ? (
@@ -237,13 +283,15 @@ export function ServersPage() {
                   >
                     {s.enabled ? "禁用" : "启用"}
                   </button>
-                  <button
-                    onClick={() => testOne(s.proxy_user)}
-                    disabled={testingServer === s.proxy_user || testingAll}
-                    className="mr-3 text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
-                  >
-                    {testingServer === s.proxy_user ? "测试中..." : "测试连接"}
-                  </button>
+                  {s.route_mode !== "dynamic_port" && (
+                    <button
+                      onClick={() => testOne(s.proxy_user)}
+                      disabled={testingServer === s.proxy_user || testingAll}
+                      className="mr-3 text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400"
+                    >
+                      {testingServer === s.proxy_user ? "测试中..." : "测试连接"}
+                    </button>
+                  )}
                   <button onClick={() => duplicate(s)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
                     复制
                   </button>
@@ -258,7 +306,7 @@ export function ServersPage() {
             ))}
             {servers.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={9} className="px-4 py-6 text-center text-slate-400">
                   还没有配置任何服务器
                 </td>
               </tr>
@@ -269,17 +317,40 @@ export function ServersPage() {
 
       {editing && (
         <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-slate-950">
+          <div className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl dark:bg-slate-950">
             <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
               {isNew ? "添加服务器" : `编辑 ${editing.proxy_user}`}
             </h3>
 
-            <Field label="代理登录名(唯一)">
+            <Field label="路由模式">
+              <SelectDropdown
+                options={[
+                  { value: "fixed", label: "固定端口" },
+                  { value: "dynamic_port", label: "动态端口" },
+                ]}
+                value={editing.route_mode ?? "fixed"}
+                onChange={(value) =>
+                  setEditing({
+                    ...editing,
+                    route_mode: value,
+                    proxy_user: value === "dynamic_port" && !editing.proxy_user ? "server-${PORT}" : editing.proxy_user,
+                  })
+                }
+              />
+            </Field>
+
+            <Field label={editing.route_mode === "dynamic_port" ? "代理登录名模板(唯一)" : "代理登录名(唯一)"}>
               <input
                 className="input"
+                placeholder={editing.route_mode === "dynamic_port" ? "server-${PORT}" : "例如 server-01"}
                 value={editing.proxy_user}
                 onChange={(e) => setEditing({ ...editing, proxy_user: e.target.value })}
               />
+              {editing.route_mode === "dynamic_port" && (
+                <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  ${"{PORT}"} 必须放在末尾。登录名中的端口会成为目标 SSH 端口。
+                </p>
+              )}
             </Field>
 
             <Field label="目标SSH服务器IP/域名">
@@ -290,25 +361,91 @@ export function ServersPage() {
               />
             </Field>
 
-            <Field label="目标SSH服务器端口">
-              <input
-                type="number"
-                className="input"
-                value={editing.target_port}
-                onChange={(e) => setEditing({ ...editing, target_port: Number(e.target.value) })}
-              />
-            </Field>
-
-            <Field label="兼容旧设备">
-              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+            {editing.route_mode === "dynamic_port" ? (
+              <>
+                <Field label="允许的目标端口范围">
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      className="input"
+                      value={editing.port_min}
+                      onChange={(e) => setEditing({ ...editing, port_min: Number(e.target.value) })}
+                    />
+                    <span className="text-slate-400">至</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      className="input"
+                      value={editing.port_max}
+                      onChange={(e) => setEditing({ ...editing, port_max: Number(e.target.value) })}
+                    />
+                  </div>
+                </Field>
+                {editing.proxy_user.endsWith("${PORT}") && editing.target_host && (
+                  <div className="mb-3 rounded-md bg-slate-50 p-2.5 text-xs text-slate-600 dark:bg-slate-900 dark:text-slate-400">
+                    示例: <code className="font-mono text-slate-800 dark:text-slate-200">{editing.proxy_user.replace("${PORT}", "8888")}</code>
+                    {" -> "}
+                    <code className="font-mono text-slate-800 dark:text-slate-200">{editing.target_host}:8888</code>
+                  </div>
+                )}
+              </>
+            ) : (
+              <Field label="目标SSH服务器端口">
                 <input
-                  type="checkbox"
-                  checked={editing.legacy_algorithms}
-                  onChange={(e) => setEditing({ ...editing, legacy_algorithms: e.target.checked })}
+                  type="number"
+                  className="input"
+                  value={editing.target_port}
+                  onChange={(e) => setEditing({ ...editing, target_port: Number(e.target.value) })}
                 />
-                连接时附加弱加密算法兜底(仅用于无法支持现代算法的老旧交换机等设备,会降低该服务器连接的安全性)
-              </label>
-            </Field>
+              </Field>
+            )}
+
+            <details className="mb-3 rounded-md border border-slate-200 dark:border-slate-800">
+              <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                高级配置
+                {(editing.legacy_algorithms || editing.host_key_fingerprint) && (
+                  <span className="ml-2 text-xs font-normal text-indigo-600 dark:text-indigo-400">已配置</span>
+                )}
+              </summary>
+              <div className="border-t border-slate-200 px-3 pt-3 dark:border-slate-800">
+                <Field label="连接算法">
+                  <SelectDropdown
+                    options={[
+                      { value: "modern", label: "现代算法(默认,推荐)" },
+                      { value: "legacy", label: "兼容旧设备" },
+                    ]}
+                    value={editing.legacy_algorithms ? "legacy" : "modern"}
+                    onChange={(value) => setEditing({ ...editing, legacy_algorithms: value === "legacy" })}
+                  />
+                  {editing.legacy_algorithms && (
+                    <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+                      将附加弱加密算法,仅用于无法支持现代算法的老旧交换机等设备。
+                    </p>
+                  )}
+                </Field>
+
+                <Field label="目标机器 Host Key 指纹(可选)">
+                  <input
+                    className="input font-mono"
+                    placeholder="SHA256:..."
+                    value={editing.host_key_fingerprint ?? ""}
+                    onChange={(e) => setEditing({ ...editing, host_key_fingerprint: e.target.value })}
+                  />
+                  <div className="mt-2 rounded-md bg-slate-50 p-2.5 text-xs text-slate-600 dark:bg-slate-900 dark:text-slate-400">
+                    <p>登录目标主机执行:</p>
+                    <code className="mt-1 block overflow-x-auto whitespace-nowrap font-mono text-slate-800 dark:text-slate-200">
+                      ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+                    </code>
+                    <p className="mt-1.5">
+                      只填写输出中的 <code className="font-mono text-slate-800 dark:text-slate-200">SHA256:...</code> 部分。
+                    </p>
+                  </div>
+                </Field>
+              </div>
+            </details>
 
             <Field label="服务器凭据(提供SSH登录名+密码/私钥)">
               <SingleSelectDropdown

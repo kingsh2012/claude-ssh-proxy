@@ -6,12 +6,17 @@ export interface ServerRecord {
   proxy_user: string;
   target_host: string;
   target_port: number;
+  route_mode: "fixed" | "dynamic_port";
+  port_min: number;
+  port_max: number;
 
   enabled: boolean;
 
   // 兼容旧设备:勾选后连接该服务器时会额外带上过时的弱加密算法(CBC 类 cipher、老 KEX、
   // ssh-dss host key)做兜底协商,仅用于无法支持现代算法的老旧交换机等设备。
   legacy_algorithms: boolean;
+
+  host_key_fingerprint?: string;
 
   client_credential_labels: string[];
 
@@ -65,6 +70,26 @@ export interface AuditLog {
   client_credential_label: string;
 }
 
+export interface ActiveConnection {
+  id: number;
+  proxy_user: string;
+  remote_addr: string;
+  target_host: string;
+  target_port: number;
+  target_user: string;
+  client_credential_label: string;
+  connected_at: string;
+  active_sessions: number;
+}
+
+export interface AuditFilters {
+  proxyUser?: string;
+  targetHost?: string;
+  clientCredentialLabel?: string;
+}
+
+export const authExpiredEvent = "ssh-proxy-auth-expired";
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -86,6 +111,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       if (body?.error) message = body.error;
     } catch {
       /* ignore */
+    }
+    if (res.status === 401 && path !== "/api/login") {
+      window.dispatchEvent(new Event(authExpiredEvent));
     }
     throw new ApiError(res.status, message);
   }
@@ -166,10 +194,14 @@ export const api = {
       body: JSON.stringify({ listen_addr: listenAddr }),
     }),
 
-  listAudit: (limit = 200, proxyUser = "") =>
-    request<AuditLog[]>(
-      `/api/audit?limit=${limit}${proxyUser ? `&proxy_user=${encodeURIComponent(proxyUser)}` : ""}`
-    ),
+  listAudit: (limit = 200, filters: AuditFilters = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (filters.proxyUser) params.set("proxy_user", filters.proxyUser);
+    if (filters.targetHost) params.set("target_host", filters.targetHost);
+    if (filters.clientCredentialLabel) params.set("client_credential_label", filters.clientCredentialLabel);
+    return request<AuditLog[]>(`/api/audit?${params}`);
+  },
+  listConnections: () => request<ActiveConnection[]>("/api/connections"),
 };
 
 export { ApiError };

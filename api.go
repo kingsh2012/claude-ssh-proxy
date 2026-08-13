@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,6 +61,7 @@ func (a *API) Router() http.Handler {
 	mux.HandleFunc("PUT /api/settings", a.auth(a.handleUpdateSettings))
 
 	mux.HandleFunc("GET /api/audit", a.auth(a.handleListAudit))
+	mux.HandleFunc("GET /api/connections", a.auth(a.handleListConnections))
 
 	return mux
 }
@@ -100,6 +103,15 @@ func (a *API) auth(next http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusUnauthorized, "登录已过期,请重新登录")
 			return
 		}
+		user, err := a.store.GetAdminUser(username)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "用户不存在,请重新登录")
+			return
+		}
+		if !user.Initialized && r.URL.Path != "/api/me" && r.URL.Path != "/api/admin/password" && r.URL.Path != "/api/logout" {
+			writeError(w, http.StatusForbidden, "首次登录必须先修改密码")
+			return
+		}
 		r = r.WithContext(withUsername(r.Context(), username))
 		next(w, r)
 	}
@@ -134,6 +146,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   requestUsesHTTPS(r),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   12 * 3600,
 	})
@@ -141,7 +154,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: requestUsesHTTPS(r), SameSite: http.SameSiteStrictMode})
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -206,8 +219,39 @@ func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "proxy_user / target_host 不能为空")
 		return
 	}
-	if server.TargetPort == 0 {
-		server.TargetPort = 22
+	switch server.RouteMode {
+	case "", "fixed":
+		server.RouteMode = "fixed"
+		if strings.Contains(server.ProxyUser, "${PORT}") {
+			writeError(w, http.StatusBadRequest, "固定端口模式的代理登录名不能包含 ${PORT}")
+			return
+		}
+		if server.TargetPort == 0 {
+			server.TargetPort = 22
+		}
+		if server.TargetPort < 1 || server.TargetPort > 65535 {
+			writeError(w, http.StatusBadRequest, "target_port 必须在 1-65535 之间")
+			return
+		}
+		server.PortMin, server.PortMax = 1, 65535
+	case "dynamic_port":
+		if strings.Count(server.ProxyUser, "${PORT}") != 1 || !strings.HasSuffix(server.ProxyUser, "${PORT}") || server.ProxyUser == "${PORT}" {
+			writeError(w, http.StatusBadRequest, "动态端口模式的代理登录名必须是非空前缀加 ${PORT},例如 server-${PORT}")
+			return
+		}
+		if server.PortMin < 1 || server.PortMax > 65535 || server.PortMin > server.PortMax {
+			writeError(w, http.StatusBadRequest, "允许端口范围必须在 1-65535 之间,且起始端口不能大于结束端口")
+			return
+		}
+		server.TargetPort = 0
+	default:
+		writeError(w, http.StatusBadRequest, "route_mode 必须是 fixed 或 dynamic_port")
+		return
+	}
+	server.HostKeyFingerprint = strings.TrimSpace(server.HostKeyFingerprint)
+	if server.HostKeyFingerprint != "" && !validSHA256Fingerprint(server.HostKeyFingerprint) {
+		writeError(w, http.StatusBadRequest, "host_key_fingerprint 必须是合法的 SHA256 SSH 指纹")
+		return
 	}
 
 	// 服务器的认证信息完全来自"服务器凭据",这里只要校验(如果指定了)凭据确实存在;
@@ -262,6 +306,9 @@ func (a *API) runServerTest(proxyUser string) (*ServerRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("服务器不存在")
 	}
+	if server.RouteMode == "dynamic_port" {
+		return nil, fmt.Errorf("动态端口规则没有固定目标端口,请使用实际代理登录名连接测试")
+	}
 	testErr := TestServer(*server)
 	msg := ""
 	if testErr != nil {
@@ -296,6 +343,9 @@ func (a *API) handleTestAllServers(w http.ResponseWriter, r *http.Request) {
 
 	var wg sync.WaitGroup
 	for _, server := range servers {
+		if server.RouteMode == "dynamic_port" {
+			continue
+		}
 		wg.Add(1)
 		go func(proxyUser string) {
 			defer wg.Done()
@@ -522,23 +572,40 @@ func (a *API) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "listen_addr 不能为空")
 		return
 	}
+	oldAddr := a.proxy.ListenAddr()
 	if err := a.proxy.Restart(body.ListenAddr); err != nil {
 		writeError(w, http.StatusBadRequest, "监听地址无效: "+err.Error())
 		return
 	}
-	_ = a.store.SetSetting("listen_addr", body.ListenAddr)
+	if err := a.store.SetSetting("listen_addr", body.ListenAddr); err != nil {
+		rollbackErr := a.proxy.Restart(oldAddr)
+		if rollbackErr != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("保存监听地址失败,且恢复旧监听失败: %v", rollbackErr))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "保存监听地址失败,已恢复旧监听")
+		return
+	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (a *API) handleListAudit(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	proxyUser := r.URL.Query().Get("proxy_user")
-	logs, err := a.store.ListAuditLogs(limit, proxyUser)
+	filters := AuditFilters{
+		ProxyUser:             r.URL.Query().Get("proxy_user"),
+		TargetHost:            r.URL.Query().Get("target_host"),
+		ClientCredentialLabel: r.URL.Query().Get("client_credential_label"),
+	}
+	logs, err := a.store.ListAuditLogs(limit, filters)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, logs)
+}
+
+func (a *API) handleListConnections(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, a.proxy.ActiveConnections())
 }
 
 // ---------- helpers ----------
@@ -562,4 +629,17 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func requestUsesHTTPS(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https")
+}
+
+func validSHA256Fingerprint(value string) bool {
+	encoded := strings.TrimPrefix(value, "SHA256:")
+	if encoded == value {
+		return false
+	}
+	digest, err := base64.RawStdEncoding.DecodeString(encoded)
+	return err == nil && len(digest) == 32
 }

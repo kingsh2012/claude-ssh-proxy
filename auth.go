@@ -13,11 +13,11 @@ import (
 func buildPublicKeyCallback(store *Store) func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 	return func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 		user := conn.User()
-		server, err := store.GetServer(user)
+		server, err := store.ResolveServer(user)
 		if err != nil || !server.Enabled {
 			return nil, fmt.Errorf("用户 %q 不可用", user)
 		}
-		creds, err := store.ListClientCredentialsForServer(user)
+		creds, err := store.ListClientCredentialsForServerID(server.ID)
 		if err != nil {
 			return nil, fmt.Errorf("未知用户名 %q", user)
 		}
@@ -44,11 +44,11 @@ func buildPublicKeyCallback(store *Store) func(conn ssh.ConnMetadata, key ssh.Pu
 func buildPasswordCallback(store *Store) func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
 	return func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
 		user := conn.User()
-		server, err := store.GetServer(user)
+		server, err := store.ResolveServer(user)
 		if err != nil || !server.Enabled {
 			return nil, fmt.Errorf("用户 %q 不可用", user)
 		}
-		creds, err := store.ListClientCredentialsForServer(user)
+		creds, err := store.ListClientCredentialsForServerID(server.ID)
 		if err != nil {
 			return nil, fmt.Errorf("未知用户名 %q", user)
 		}

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -15,9 +18,25 @@ type Proxy struct {
 	store      *Store
 	hostSigner ssh.Signer
 
-	mu       sync.Mutex
-	listener net.Listener
-	stopped  bool
+	mu         sync.Mutex
+	listener   net.Listener
+	listenAddr string
+
+	connectionsMu sync.RWMutex
+	connections   map[uint64]*ActiveConnection
+	nextConnID    uint64
+}
+
+type ActiveConnection struct {
+	ID                    uint64    `json:"id"`
+	ProxyUser             string    `json:"proxy_user"`
+	RemoteAddr            string    `json:"remote_addr"`
+	TargetHost            string    `json:"target_host"`
+	TargetPort            int       `json:"target_port"`
+	TargetUser            string    `json:"target_user"`
+	ClientCredentialLabel string    `json:"client_credential_label"`
+	ConnectedAt           time.Time `json:"connected_at"`
+	ActiveSessions        int       `json:"active_sessions"`
 }
 
 func NewProxy(store *Store, hostKeyPath string) (*Proxy, error) {
@@ -25,26 +44,34 @@ func NewProxy(store *Store, hostKeyPath string) (*Proxy, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Proxy{store: store, hostSigner: signer}, nil
+	return &Proxy{store: store, hostSigner: signer, connections: make(map[uint64]*ActiveConnection)}, nil
 }
 
 // Start 在指定地址上监听并开始接受连接(非阻塞,内部起 goroutine 处理 accept 循环)。
 func (p *Proxy) Start(addr string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.listener != nil {
+		return fmt.Errorf("SSH proxy 已经在监听 %s", p.listenAddr)
+	}
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("监听 %s 失败: %w", addr, err)
+	}
+	p.activateListener(ln, addr)
+	return nil
+}
+
+func (p *Proxy) activateListener(ln net.Listener, addr string) {
 	serverCfg := &ssh.ServerConfig{
 		PublicKeyCallback: buildPublicKeyCallback(p.store),
 		PasswordCallback:  buildPasswordCallback(p.store),
 	}
 	serverCfg.AddHostKey(p.hostSigner)
 
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("监听 %s 失败: %w", addr, err)
-	}
-
-	p.mu.Lock()
 	p.listener = ln
-	p.stopped = false
-	p.mu.Unlock()
+	p.listenAddr = addr
 
 	log.Printf("claude-ssh-proxy 正在监听 %s", addr)
 
@@ -52,10 +79,7 @@ func (p *Proxy) Start(addr string) error {
 		for {
 			nc, err := ln.Accept()
 			if err != nil {
-				p.mu.Lock()
-				stopped := p.stopped
-				p.mu.Unlock()
-				if stopped {
+				if errors.Is(err, net.ErrClosed) {
 					return
 				}
 				log.Printf("accept 失败: %v", err)
@@ -64,8 +88,6 @@ func (p *Proxy) Start(addr string) error {
 			go p.handleConn(nc, serverCfg)
 		}
 	}()
-
-	return nil
 }
 
 // Stop 关闭当前监听,供切换监听地址时调用。
@@ -73,16 +95,114 @@ func (p *Proxy) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.listener != nil {
-		p.stopped = true
 		p.listener.Close()
 		p.listener = nil
+		p.listenAddr = ""
 	}
 }
 
-// Restart 停掉旧监听,换到新地址重新监听。
+func (p *Proxy) ListenAddr() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.listenAddr
+}
+
+// Restart 优先先绑定新地址,成功后才关闭旧监听。监听地址与旧地址端口重叠时无法同时
+// 绑定,此时才短暂关闭旧监听再重试;重试失败会自动恢复旧监听。
 func (p *Proxy) Restart(addr string) error {
-	p.Stop()
-	return p.Start(addr)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.listener == nil {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("监听 %s 失败: %w", addr, err)
+		}
+		p.activateListener(ln, addr)
+		return nil
+	}
+	if addr == p.listenAddr {
+		return nil
+	}
+
+	oldListener := p.listener
+	oldAddr := p.listenAddr
+	newListener, err := net.Listen("tcp", addr)
+	if err == nil {
+		p.activateListener(newListener, addr)
+		_ = oldListener.Close()
+		return nil
+	}
+
+	// 只有新旧地址使用同一个 TCP 端口且失败原因是地址占用时,失败才可能是旧
+	// listener 自身造成的。其他错误直接返回,保持旧监听不动。
+	if !errors.Is(err, syscall.EADDRINUSE) || !sameTCPPort(oldListener.Addr(), addr) {
+		return fmt.Errorf("监听 %s 失败: %w", addr, err)
+	}
+
+	_ = oldListener.Close()
+	newListener, retryErr := net.Listen("tcp", addr)
+	if retryErr == nil {
+		p.activateListener(newListener, addr)
+		return nil
+	}
+
+	restored, restoreErr := net.Listen("tcp", oldAddr)
+	if restoreErr == nil {
+		p.activateListener(restored, oldAddr)
+		return fmt.Errorf("监听 %s 失败,已恢复旧监听 %s: %w", addr, oldAddr, retryErr)
+	}
+
+	p.listener = nil
+	p.listenAddr = ""
+	return fmt.Errorf("监听 %s 失败且无法恢复旧监听 %s: %v (恢复失败: %v)", addr, oldAddr, retryErr, restoreErr)
+}
+
+func sameTCPPort(current net.Addr, requested string) bool {
+	currentTCP, ok := current.(*net.TCPAddr)
+	if !ok || currentTCP.Port == 0 {
+		return false
+	}
+	requestedTCP, err := net.ResolveTCPAddr("tcp", requested)
+	return err == nil && requestedTCP.Port == currentTCP.Port
+}
+
+func (p *Proxy) addConnection(server ServerRecord, remoteAddr, credentialLabel string) uint64 {
+	p.connectionsMu.Lock()
+	defer p.connectionsMu.Unlock()
+	p.nextConnID++
+	id := p.nextConnID
+	p.connections[id] = &ActiveConnection{
+		ID: id, ProxyUser: server.ProxyUser, RemoteAddr: remoteAddr,
+		TargetHost: server.TargetHost, TargetPort: server.TargetPort, TargetUser: server.TargetUser,
+		ClientCredentialLabel: credentialLabel, ConnectedAt: time.Now(),
+	}
+	return id
+}
+
+func (p *Proxy) removeConnection(id uint64) {
+	p.connectionsMu.Lock()
+	delete(p.connections, id)
+	p.connectionsMu.Unlock()
+}
+
+func (p *Proxy) changeActiveSessions(id uint64, delta int) {
+	p.connectionsMu.Lock()
+	if c := p.connections[id]; c != nil {
+		c.ActiveSessions += delta
+	}
+	p.connectionsMu.Unlock()
+}
+
+func (p *Proxy) ActiveConnections() []ActiveConnection {
+	p.connectionsMu.RLock()
+	out := make([]ActiveConnection, 0, len(p.connections))
+	for _, c := range p.connections {
+		out = append(out, *c)
+	}
+	p.connectionsMu.RUnlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].ConnectedAt.Before(out[j].ConnectedAt) })
+	return out
 }
 
 func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
@@ -98,7 +218,7 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 
 	proxyUser := sconn.Permissions.Extensions["server-user"]
 	clientCredentialLabel := sconn.Permissions.Extensions["client-credential-label"]
-	server, err := p.store.GetServer(proxyUser)
+	server, err := p.store.ResolveServer(proxyUser)
 	if err != nil {
 		log.Printf("[%s] 服务器 %q 不存在", remoteAddr, proxyUser)
 		return
@@ -113,6 +233,8 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 		return
 	}
 	defer client.Close()
+	connectionID := p.addConnection(*server, remoteAddr, clientCredentialLabel)
+	defer p.removeConnection(connectionID)
 
 	go ssh.DiscardRequests(reqs) // 全局请求(如 keepalive)直接丢弃,不影响会话代理
 
@@ -121,7 +243,7 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 		wg.Add(1)
 		go func(nch ssh.NewChannel) {
 			defer wg.Done()
-			p.forwardChannel(nch, client, proxyUser, remoteAddr, server.TargetHost, server.TargetPort, clientCredentialLabel)
+			p.forwardChannel(nch, client, proxyUser, remoteAddr, server.TargetHost, server.TargetPort, clientCredentialLabel, connectionID)
 		}(newChan)
 	}
 	wg.Wait()
@@ -167,7 +289,7 @@ func dialUpstreamTimeout(server ServerRecord, timeout time.Duration) (*ssh.Clien
 	clientCfg := &ssh.ClientConfig{
 		User:            server.TargetUser,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // 内网环境使用;需要更严格校验时换成 ssh.FixedHostKey
+		HostKeyCallback: verifyHostKeyFingerprint(server.HostKeyFingerprint),
 		Timeout:         timeout,
 	}
 
@@ -186,6 +308,19 @@ func dialUpstreamTimeout(server ServerRecord, timeout time.Duration) (*ssh.Clien
 	return ssh.Dial("tcp", addr, clientCfg)
 }
 
+func verifyHostKeyFingerprint(expected string) ssh.HostKeyCallback {
+	if expected == "" {
+		return ssh.InsecureIgnoreHostKey()
+	}
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		actual := ssh.FingerprintSHA256(key)
+		if actual != expected {
+			return fmt.Errorf("目标机器 host key 指纹不匹配:期望 %s,实际 %s", expected, actual)
+		}
+		return nil
+	}
+}
+
 // TestServer 尝试连接一次目标机器验证账号密码/私钥是否配置正确,连上就立刻断开,
 // 不做任何业务操作,供 Web 后台的"测试 SSH 连接"功能使用。
 func TestServer(server ServerRecord) error {
@@ -199,7 +334,7 @@ func TestServer(server ServerRecord) error {
 // forwardChannel 把下游(Claude 侧)发起的一个 channel 对应地在上游(真实目标机器)
 // 打开一个同类型 channel,双向转发数据和 out-of-band 请求;对 "session" 类型的
 // channel(exec/shell/subsystem)顺带记录审计日志。
-func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxyUser, remoteAddr, targetHost string, targetPort int, clientCredentialLabel string) {
+func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxyUser, remoteAddr, targetHost string, targetPort int, clientCredentialLabel string, connectionID uint64) {
 	upChan, upReqs, err := client.OpenChannel(newChan.ChannelType(), newChan.ExtraData())
 	if err != nil {
 		if openErr, ok := err.(*ssh.OpenChannelError); ok {
@@ -219,12 +354,22 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxy
 
 	var audit *auditSession
 	if newChan.ChannelType() == "session" {
+		p.changeActiveSessions(connectionID, 1)
+		defer p.changeActiveSessions(connectionID, -1)
 		audit = newAuditSession(p.store, proxyUser, remoteAddr, targetHost, targetPort, clientCredentialLabel)
 		defer audit.finish()
 	}
 
-	go forwardRequests(downReqs, upChan, audit)
-	go forwardRequests(upReqs, downChan, audit)
+	var requestWG sync.WaitGroup
+	requestWG.Add(2)
+	go func() {
+		defer requestWG.Done()
+		forwardRequests(downReqs, upChan, audit)
+	}()
+	go func() {
+		defer requestWG.Done()
+		forwardRequests(upReqs, downChan, audit)
+	}()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -247,6 +392,9 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxy
 		downChan.CloseWrite()
 	}()
 	wg.Wait()
+	_ = upChan.Close()
+	_ = downChan.Close()
+	requestWG.Wait()
 }
 
 // forwardRequests 把一侧收到的 out-of-band 请求(pty-req/shell/exec/env/window-change/exit-status 等)

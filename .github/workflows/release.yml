@@ -34,11 +34,18 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: 0
         run: |
+          bash -n install.sh
           mkdir -p dist
-          out="claude-ssh-proxy-linux-amd64"
-          go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o "dist/${out}" .
-          tar czf "dist/${out}.tar.gz" -C dist "${out}"
-          rm "dist/${out}"
+          package="claude-ssh-proxy-linux-amd64"
+          package_dir="dist/${package}"
+          mkdir -p "${package_dir}/systemd"
+          go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o "${package_dir}/claude-ssh-proxy" .
+          cp install.sh "${package_dir}/install.sh"
+          cp README.md "${package_dir}/README.md"
+          cp systemd/claude-ssh-proxy.service "${package_dir}/systemd/claude-ssh-proxy.service"
+          chmod 0755 "${package_dir}/claude-ssh-proxy" "${package_dir}/install.sh"
+          tar czf "dist/${package}.tar.gz" -C dist "${package}"
+          rm -rf "${package_dir}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

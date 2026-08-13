@@ -152,22 +152,24 @@ SSH 监听地址不是启动参数,而是存在数据库里的一项设置,首�
 
 ## 用 systemd 常驻运行
 
-仓库里 `systemd/claude-ssh-proxy.service` 是一份现成的 unit 文件,默认把数据库和 host key 放在 `/var/lib/claude-ssh-proxy`,Web 后台只监听 `127.0.0.1:8080`(建议在前面套一层反向代理做 TLS 再对外暴露)。安装步骤:
+Release 压缩包自带一键安装脚本。下载后解压并以 root 执行:
 
 ```bash
-sudo useradd --system --home /var/lib/claude-ssh-proxy --shell /usr/sbin/nologin claude-ssh-proxy
-sudo mkdir -p /var/lib/claude-ssh-proxy
-sudo chown claude-ssh-proxy:claude-ssh-proxy /var/lib/claude-ssh-proxy
-
-sudo cp claude-ssh-proxy /usr/local/bin/claude-ssh-proxy
-sudo cp systemd/claude-ssh-proxy.service /etc/systemd/system/
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now claude-ssh-proxy
-sudo journalctl -u claude-ssh-proxy -f   # 看启动日志里打印的初始管理员密码
+cd /root
+tar xzf claude-ssh-proxy-linux-amd64.tar.gz
+cd claude-ssh-proxy-linux-amd64
+./install.sh
 ```
 
-SSH 监听端口(默认 `:2222`)本身不需要特权,如果你把它改成 1024 以下的端口,unit 文件里已经带了 `CAP_NET_BIND_SERVICE`,不需要用 root 跑。
+安装脚本会把程序、数据库、凭据加密密钥和 host key 放在 `/data/claude-ssh-proxy`,安装 systemd 服务并以 root 用户启动。重复执行可用于升级,已有数据不会被覆盖;升级前会把数据库、`.key` 和 host key 备份到 `/data/claude-ssh-proxy/backups/<时间>/`,新服务启动失败时会自动恢复上一版程序和 unit。若检测到旧版 `/var/lib/claude-ssh-proxy` 数据且新目录还没有数据库,脚本会在停止服务后复制旧数据,同时保留旧目录用于回退。
+
+常用管理命令:
+
+```bash
+systemctl status claude-ssh-proxy
+systemctl restart claude-ssh-proxy
+journalctl -u claude-ssh-proxy -f
+```
 
 Nginx 反向代理至少应传入原始协议,让登录 Cookie 在 HTTPS 下自动带上 `Secure`:
 
@@ -204,7 +206,7 @@ location / {
 ## CI/CD
 
 - `.github/workflows/ci.yml`:每次 push / PR 到 `main` 分支,自动构建前端 + `go vet` + `go build` + `go test`
-- `.github/workflows/release.yml`:推送 `vX.Y.Z` 格式的 tag(例如 `v0.0.1`)会自动触发,编译 Linux amd64 版本的二进制,打包成 `.tar.gz` 并发布到 GitHub Release
+- `.github/workflows/release.yml`:推送 `vX.Y.Z` 格式的 tag(例如 `v0.0.1`)会自动触发,编译 Linux amd64 版本并打包为带顶层目录的 `.tar.gz`;安装包内含二进制、`install.sh` 和 systemd unit,随后自动发布到 GitHub Release
 
 发布新版本:
 

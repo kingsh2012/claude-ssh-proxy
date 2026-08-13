@@ -22,6 +22,9 @@ jobs:
           npm ci
           npm run build
 
+      - name: Check installer
+        run: bash -n install.sh
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

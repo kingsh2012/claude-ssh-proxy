@@ -3,6 +3,7 @@
 *.db
 *.db-wal
 *.db-shm
+*.db.key
 *.log
 host_key
 webui/node_modules/

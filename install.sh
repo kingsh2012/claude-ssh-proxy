@@ -33,6 +33,7 @@ rollback_install() {
     if [[ ${had_unit} == true && -f ${UNIT_PATH}.previous ]]; then
       mv -f "${UNIT_PATH}.previous" "${UNIT_PATH}"
     else
+      systemctl disable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
       rm -f "${UNIT_PATH}" "${UNIT_PATH}.previous"
     fi
     systemctl daemon-reload >/dev/null 2>&1 || true

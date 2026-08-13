@@ -143,12 +143,13 @@ Agent 之后执行的每条命令、每个交互式 shell 会话,都会被记录
 ./claude-ssh-proxy \
   -db claude-ssh-proxy.db \        # SQLite 数据库路径
   -host-key host_key \             # proxy 自身 SSH host key 文件(不存在会自动生成)
+  -ssh-addr :2223 \                # 覆盖并保存 SSH 监听地址(留空时使用数据库配置)
   -web-addr 127.0.0.1:8080 \       # Web 管理后台监听地址
   -bootstrap-admin-user admin \    # 首次启动自动创建的管理员用户名
   -bootstrap-admin-password admin  # 首次启动自动创建的管理员初始密码(登录后强制要求修改)
 ```
 
-SSH 监听地址不是启动参数,而是存在数据库里的一项设置,首次启动默认 `:2222`,之后可以在 Web 后台"监听设置"页面修改。新地址会先实际绑定再切换;地址重叠时若切换失败会尝试恢复旧监听。
+SSH 监听地址会保存在数据库里,首次启动默认 `:2222`;通过 `-ssh-addr` 指定地址时会覆盖并保存到数据库,之后可在 Web 后台"监听设置"页面修改。未传 `-ssh-addr` 时以数据库配置为准。新地址会先实际绑定再切换;地址重叠时若切换失败会尝试恢复旧监听。
 
 ## 用 systemd 常驻运行
 
@@ -158,8 +159,10 @@ Release 压缩包自带一键安装脚本。下载后解压并以 root 执行:
 cd /root
 tar xzf claude-ssh-proxy-linux-amd64.tar.gz
 cd claude-ssh-proxy-linux-amd64
-./install.sh
+./install.sh --ssh-addr :2223
 ```
+
+如果本机的 `2222` 已被其他程序占用,用 `--ssh-addr` 选择空闲端口。还可以同时指定 Web 监听地址,例如 `./install.sh --ssh-addr :2223 --web-addr 127.0.0.1:8080`。`--ssh-addr` 会覆盖数据库中的旧监听地址,因此也能恢复因旧端口被占用而无法启动的安装。服务启动成功后该一次性覆盖会自动清除,后续以网页保存的配置为准;重复安装但不传选项时不会改变 SSH 监听。
 
 安装脚本会把程序、数据库、凭据加密密钥和 host key 放在 `/data/claude-ssh-proxy`,安装 systemd 服务并以 root 用户启动。重复执行可用于升级,已有数据不会被覆盖;升级前会把数据库、`.key` 和 host key 备份到 `/data/claude-ssh-proxy/backups/<时间>/`,新服务启动失败时会自动恢复上一版程序和 unit。若检测到旧版 `/var/lib/claude-ssh-proxy` 数据且新目录还没有数据库,脚本会在停止服务后复制旧数据,同时保留旧目录用于回退。
 

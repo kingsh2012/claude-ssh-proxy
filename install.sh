@@ -8,12 +8,56 @@ readonly UNIT_PATH="${CLAUDE_SSH_PROXY_UNIT_PATH:-/etc/systemd/system/${SERVICE_
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly SOURCE_BINARY="${SCRIPT_DIR}/claude-ssh-proxy"
 readonly SOURCE_UNIT="${SCRIPT_DIR}/systemd/${SERVICE_NAME}.service"
+readonly CONFIG_PATH="${INSTALL_DIR}/${SERVICE_NAME}.env"
 is_first_install=true
 backup_dir=""
+ssh_listen_addr=""
+web_listen_addr=""
+ssh_addr_provided=false
 had_binary=false
 had_unit=false
+had_config=false
 service_was_active=false
 replacement_started=false
+
+usage() {
+  cat <<'EOF'
+用法: ./install.sh [选项]
+
+  --ssh-addr 地址   覆盖并保存 SSH 代理监听地址,例如 :2223
+  --web-addr 地址   Web 后台监听地址,例如 127.0.0.1:8080
+  -h, --help        显示帮助
+
+不传 --ssh-addr 时,保留数据库里的 SSH 监听配置。
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ssh-addr|--web-addr)
+      if [[ $# -lt 2 || -z $2 ]]; then
+        echo "错误:$1 需要提供监听地址。" >&2
+        exit 2
+      fi
+      if [[ $1 == --ssh-addr ]]; then
+        ssh_listen_addr=$2
+        ssh_addr_provided=true
+      else
+        web_listen_addr=$2
+      fi
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "错误:未知选项 $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
 
 rollback_install() {
   local status=$?
@@ -35,6 +79,11 @@ rollback_install() {
     else
       systemctl disable "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
       rm -f "${UNIT_PATH}" "${UNIT_PATH}.previous"
+    fi
+    if [[ ${had_config} == true && -f ${CONFIG_PATH}.previous ]]; then
+      mv -f "${CONFIG_PATH}.previous" "${CONFIG_PATH}"
+    elif [[ ${had_config} == false ]]; then
+      rm -f "${CONFIG_PATH}" "${CONFIG_PATH}.previous"
     fi
     systemctl daemon-reload >/dev/null 2>&1 || true
   fi
@@ -118,11 +167,43 @@ if [[ -f ${UNIT_PATH} ]]; then
   cp -a "${UNIT_PATH}" "${UNIT_PATH}.previous"
   had_unit=true
 fi
+if [[ -f ${CONFIG_PATH} ]]; then
+  cp -a "${CONFIG_PATH}" "${CONFIG_PATH}.previous"
+  had_config=true
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      SSH_LISTEN_ADDR) stored_ssh_listen_addr=${value} ;;
+      WEB_LISTEN_ADDR) stored_web_listen_addr=${value} ;;
+    esac
+  done < "${CONFIG_PATH}"
+fi
+
+if [[ ${ssh_addr_provided} == false ]]; then
+  ssh_listen_addr=""
+fi
+web_listen_addr=${web_listen_addr:-${stored_web_listen_addr:-127.0.0.1:8080}}
+for listen_addr in "${web_listen_addr}"; do
+  if [[ -z ${listen_addr} || ${listen_addr} =~ [^A-Za-z0-9._:%\[\]-] ]]; then
+    echo "错误:监听地址 ${listen_addr} 格式不正确。" >&2
+    false
+  fi
+done
+if [[ -n ${ssh_listen_addr} && ${ssh_listen_addr} =~ [^A-Za-z0-9._:%\[\]-] ]]; then
+  echo "错误:监听地址 ${ssh_listen_addr} 格式不正确。" >&2
+  false
+fi
 
 replacement_started=true
 install -m 0755 -o root -g root "${SOURCE_BINARY}" "${INSTALL_DIR}/${SERVICE_NAME}.new"
 mv -f "${INSTALL_DIR}/${SERVICE_NAME}.new" "${INSTALL_DIR}/${SERVICE_NAME}"
 install -m 0644 -o root -g root "${SOURCE_UNIT}" "${UNIT_PATH}"
+{
+  printf 'SSH_LISTEN_ADDR=%s\n' "${ssh_listen_addr}"
+  printf 'WEB_LISTEN_ADDR=%s\n' "${web_listen_addr}"
+} > "${CONFIG_PATH}.new"
+chmod 0600 "${CONFIG_PATH}.new"
+chown root:root "${CONFIG_PATH}.new"
+mv -f "${CONFIG_PATH}.new" "${CONFIG_PATH}"
 
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}.service" >/dev/null
@@ -132,8 +213,23 @@ if ! systemctl start "${SERVICE_NAME}.service"; then
   journalctl -u "${SERVICE_NAME}.service" -n 30 --no-pager >&2 || true
   false
 fi
+sleep 1
+if ! systemctl is-active --quiet "${SERVICE_NAME}.service"; then
+  echo "错误:服务启动后退出,可能是监听端口被占用。最近日志如下:" >&2
+  journalctl -u "${SERVICE_NAME}.service" -n 30 --no-pager >&2 || true
+  false
+fi
 
-rm -f "${INSTALL_DIR}/${SERVICE_NAME}.previous" "${UNIT_PATH}.previous"
+# SSH 覆盖值已由程序写入数据库,清空环境变量以免后续重启覆盖网页中的新配置。
+{
+  printf 'SSH_LISTEN_ADDR=\n'
+  printf 'WEB_LISTEN_ADDR=%s\n' "${web_listen_addr}"
+} > "${CONFIG_PATH}.new"
+chmod 0600 "${CONFIG_PATH}.new"
+chown root:root "${CONFIG_PATH}.new"
+mv -f "${CONFIG_PATH}.new" "${CONFIG_PATH}"
+
+rm -f "${INSTALL_DIR}/${SERVICE_NAME}.previous" "${UNIT_PATH}.previous" "${CONFIG_PATH}.previous"
 replacement_started=false
 
 echo
@@ -143,7 +239,12 @@ echo "  数据目录: ${INSTALL_DIR}"
 if [[ -n ${backup_dir} ]]; then
   echo "  本次备份: ${backup_dir}"
 fi
-echo "  Web 后台: http://127.0.0.1:8080"
+if [[ ${ssh_addr_provided} == true ]]; then
+  echo "  SSH 监听: ${ssh_listen_addr}"
+else
+  echo "  SSH 监听: 保留数据库配置(首次安装默认 :2222)"
+fi
+echo "  Web 监听: ${web_listen_addr}"
 echo "  服务状态: systemctl status ${SERVICE_NAME}"
 echo "  查看日志: journalctl -u ${SERVICE_NAME} -f"
 echo

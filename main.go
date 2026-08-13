@@ -14,7 +14,8 @@ var version = "dev"
 func main() {
 	dbPath := flag.String("db", "claude-ssh-proxy.db", "SQLite 数据库文件路径")
 	hostKeyPath := flag.String("host-key", "host_key", "proxy 自身 SSH host key 文件路径")
-	webAddr := flag.String("web-addr", "127.0.0.1:8080", "Web 管理后台监听地址")
+	webAddr := flag.String("web-addr", envOrDefault("WEB_LISTEN_ADDR", "127.0.0.1:8080"), "Web 管理后台监听地址")
+	sshAddr := flag.String("ssh-addr", os.Getenv("SSH_LISTEN_ADDR"), "覆盖并保存 SSH 代理监听地址(留空时使用数据库配置,首次默认 :2222)")
 	adminUser := flag.String("bootstrap-admin-user", "admin", "首次启动时自动创建的管理员用户名(仅当数据库里还没有任何管理员账号时生效)")
 	adminPassword := flag.String("bootstrap-admin-password", "admin", "首次启动时自动创建的管理员初始密码(仅当数据库里还没有任何管理员账号时生效,登录后会被强制要求修改)")
 	showVersion := flag.Bool("version", false, "打印版本号并退出")
@@ -48,8 +49,16 @@ func main() {
 		log.Fatalf("初始化 claude-ssh-proxy 失败: %v", err)
 	}
 	listenAddr := store.GetSetting("listen_addr", ":2222")
+	if *sshAddr != "" {
+		listenAddr = *sshAddr
+	}
 	if err := proxy.Start(listenAddr); err != nil {
 		log.Fatalf("启动 claude-ssh-proxy 失败: %v", err)
+	}
+	if *sshAddr != "" {
+		if err := store.SetSetting("listen_addr", listenAddr); err != nil {
+			log.Fatalf("保存 SSH 监听地址失败: %v", err)
+		}
 	}
 
 	api := NewAPI(store, proxy)
@@ -61,4 +70,11 @@ func main() {
 	if err := http.ListenAndServe(*webAddr, mux); err != nil {
 		log.Fatalf("Web 服务启动失败: %v", err)
 	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }

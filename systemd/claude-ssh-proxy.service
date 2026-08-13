@@ -8,10 +8,12 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=/data/claude-ssh-proxy
+Environment=SSH_LISTEN_ADDR=
+Environment=WEB_LISTEN_ADDR=127.0.0.1:8080
+EnvironmentFile=-/data/claude-ssh-proxy/claude-ssh-proxy.env
 ExecStart=/data/claude-ssh-proxy/claude-ssh-proxy \
   -db /data/claude-ssh-proxy/claude-ssh-proxy.db \
-  -host-key /data/claude-ssh-proxy/host_key \
-  -web-addr 127.0.0.1:8080
+  -host-key /data/claude-ssh-proxy/host_key
 
 Restart=on-failure
 RestartSec=2s

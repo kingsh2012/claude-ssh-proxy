@@ -214,10 +214,15 @@ Remove-Item -LiteralPath 'Cert:\CurrentUser\Root\55C80A83352F2133B05F832AA9E2921
 - Linux 发布包 SHA-256：`838fd3997eb8b04b24e2ffabb996b8944baa75308e647ba505ff94f3eb127b85`；Windows 发布包 SHA-256：`a8f0418066b756f7931968c14affc4bbf5696d497e1fc0b37074323989a2b915`。本地 `dist` 的同名二进制和安装包已同步为正式发布产物。
 - 正式 HTTPS/WSS 入口仍待配置。在“服务设置”填写实际可达的 WSS 地址与默认客户端凭据后生成共享 Token；本次未将测试地址写入生产配置。
 
-## Ant Design Pro 精简后台（2026-09-14，待发布）
+## Ant Design Pro 精简后台（2026-09-14，v0.0.25 已部署）
 
 - 根据新的界面要求，前端改为 Ant Design Pro 官方 Umi Max 骨架。使用 ProLayout 默认浅色混合布局、PageContainer、ProTable、LoginForm；只保留六个实际业务页面，移除示例、mock 与样式设置工具。来源、许可证和开发入口见 [前端说明](../webui/README.md)。
 - 页面全宽自适应，窄屏仅表格内部横滚。连接失败只在鼠标悬停时展示完整报错，无点击展开和错误输入框。
 - 继续使用现有 API；登录、首次强制改密、退出、会话失效及旧 Agent 页面跳转均保留。自注册 Token 仍在“服务设置”管理。
 - 本机 `npm ci`、TypeScript 检查、lint、生产构建通过。Chrome 使用样例 API 验证 1920、1440、1024、390 像素宽度、每页 20 条、搜索与接入方式筛选、添加弹窗、Token 生成、登录和首次改密、六个页面、审计命令展开；无浏览器运行错误。截图和结果保存在本地 `dist/ui-pro-20260914/`，不是生产数据。
-- 本轮尚未发版或替换生产 `v0.0.24`，公网 WSS 入口状态以正式部署章节为准。
+- 已发布 [v0.0.25](https://github.com/kingsh2012/claude-ssh-proxy/releases/tag/v0.0.25)，代码提交 `192b6aef6ab1301f6b7a9dc9886a8eaa569df928`。[CI](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34772979254) 的 Linux 和 Windows 检查全部通过，[Release 构建](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34772979193) 成功。
+- `192.168.102.7` 已部署正式 Release Linux 产物，`ops-ssh-proxy.service` 为 `active/running`、开机启用，自动重启次数 0，程序版本 `v0.0.25`。后台仍为 `http://192.168.102.7:8080`，SSH 端口仍为 `2222`。
+- 发布包 SHA-256 与 GitHub 资产摘要一致。Linux tar.gz：`7e92137517eeb34085920cf4c4598ca69dbeb6c70ed98e3f781fc3d06202bc5d`；Windows ZIP：`e65dfbc3b4827a28d8c2594f67d1d43dfb10e6e15b7f1880af052d37ab02e0b3`；正式服务端程序：`edb8004a4dd26507d85c996a07ff408c1c6f8cd3dbb85a68bc2c81c34423352f`。
+- 升级前已停止服务并一致性备份至 `/data/claude-ssh-proxy/20260914-v0.0.25-deploy-_txsvoco/production-backup`。38 台主机、3 份服务器凭据、3 份客户端凭据、39 条绑定、1 个管理员、1651 条审计及其他表逐项保留；数据库完整性和外键检查通过。数据库密钥、SSH host key 和 systemd unit 均未改变。
+- 生产返回的新 Umi 入口、JS/CSS、SSH 握手和未登录接口鉴权检查通过。Chrome 使用正式生产静态资源并拦截业务 API 为样例数据，复验四种宽度、筛选、Token 表单、登录与首次改密、审计展开和悬停报错；未对生产业务数据执行这些测试操作。另以未拦截 API 的真实浏览器访问生产登录页通过，均无页面运行错误。
+- 本地发布包、截图和验证结果在 `dist/20260914-v0.0.25/`；服务器同次部署目录保存发布信息、部署脚本和 `deployment-verification.json`。公网 WSS 入口尚未配置，本次 UI 发版没有生成生产自注册 Token。

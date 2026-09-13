@@ -1,5 +1,5 @@
 import { PageContainer } from "@ant-design/pro-components";
-import { Card, Input, Button } from "antd";
+import { Input, Button } from "antd";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
 import { SelfRegistrationSettings } from "./SelfRegistrationSettings";
@@ -45,11 +45,13 @@ export function SettingsPage() {
 
   return (
     <PageContainer
-      title="服务设置"
-      content="管理监听地址、Agent 接入与账号安全。"
+      title={false}
+      ghost
+      style={{ padding: 0 }}
+      breadcrumb={{ items: [{ title: "运维管理" }, { title: "服务设置" }] }}
     >
-      <div className="settings-grid">
-        <Card>
+      <div className="work-surface settings-grid">
+        <section>
           <h3 className="mb-3 text-base font-semibold text-slate-900 ">
             SSH 监听地址
           </h3>
@@ -69,21 +71,23 @@ export function SettingsPage() {
             {saved && <p className="text-sm text-emerald-600 ">已生效</p>}
             {error && <p className="text-sm text-red-600 ">{error}</p>}
           </div>
-        </Card>
+        </section>
 
         <SelfRegistrationSettings />
 
-        <Card>
+        <section>
           <h3 className="mb-3 text-base font-semibold text-slate-900 ">
             修改管理员密码
           </h3>
           <div className="settings-fields">
             <Input.Password
+              autoComplete="current-password"
               placeholder="原密码"
               value={oldPassword}
               onChange={(e) => setOldPassword(e.target.value)}
             />
             <Input.Password
+              autoComplete="new-password"
               placeholder="新密码(至少 8 位)"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
@@ -93,7 +97,7 @@ export function SettingsPage() {
             </Button>
             {pwMsg && <p className="text-sm text-slate-600 ">{pwMsg}</p>}
           </div>
-        </Card>
+        </section>
       </div>
     </PageContainer>
   );

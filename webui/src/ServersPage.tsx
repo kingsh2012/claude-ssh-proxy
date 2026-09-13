@@ -1,11 +1,15 @@
-import { PageContainer, ProTable } from "@ant-design/pro-components";
+import { ServerForm, type ServerFormValues } from "./ServerForm";
+import type { ProColumns } from "@ant-design/pro-components";
+import { Empty } from "antd";
 import {
-  PlusOutlined,
-  ReloadOutlined,
-  ImportOutlined,
-  DesktopOutlined,
-  CloudServerOutlined,
+  ReloadOutlined as RefreshIcon,
+  MoreOutlined,
+  ClearOutlined,
 } from "@ant-design/icons";
+import { ToolbarIconAction, ListToolbarSearch } from "./ListControls";
+import { useListView } from "./useListView";
+import { PageContainer, ProTable } from "@ant-design/pro-components";
+
 import {
   Grid,
   Badge,
@@ -15,7 +19,6 @@ import {
   Modal,
   Tag,
   Typography,
-  Segmented,
 } from "antd";
 import { useFeedback } from "./useFeedback";
 import { useEffect, useState } from "react";
@@ -27,11 +30,7 @@ import {
   type ServerCredential,
 } from "./api";
 import { ChipList } from "./ChipList";
-import {
-  MultiSelectDropdown,
-  SelectDropdown,
-  SingleSelectDropdown,
-} from "./MultiSelectDropdown";
+
 import { Tooltip } from "./Tooltip";
 
 const emptyServer: ServerRecord = {
@@ -82,10 +81,9 @@ async function reconcileClientCredentials(
 }
 
 export function ServersPage() {
+  const [loading, setLoading] = useState(false);
   const screens = Grid.useBreakpoint();
-  const { confirm, alert } = useFeedback();
-  const [connectionFilter, setConnectionFilter] = useState("all");
-  const [search, setSearch] = useState("");
+  const { confirm, alert, success } = useFeedback();
   const [servers, setServers] = useState<ServerRecord[]>([]);
   const [serverCredentials, setServerCredentials] = useState<
     ServerCredential[]
@@ -104,14 +102,20 @@ export function ServersPage() {
   const [importing, setImporting] = useState(false);
 
   async function load() {
-    const [s, sc, cc] = await Promise.all([
-      api.listServers(),
-      api.listServerCredentials(),
-      api.listClientCredentials(),
-    ]);
-    setServers(s ?? []);
-    setServerCredentials(sc ?? []);
-    setClientCredentials(cc ?? []);
+    setLoading(true);
+    try {
+      const [s, sc, cc] = await Promise.all([
+        api.listServers(),
+        api.listServerCredentials(),
+        api.listClientCredentials(),
+      ]);
+      setServers(s ?? []);
+      setError("");
+      setServerCredentials(sc ?? []);
+      setClientCredentials(cc ?? []);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -184,32 +188,28 @@ export function ServersPage() {
     setError("");
   }
 
-  function toggleCredential(id: number) {
-    setSelectedCredentialIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }
-
-  async function save() {
-    if (!editing) return;
+  async function save(values: ServerFormValues) {
+    if (!editing) return false;
+    const { credentialIds, ...fields } = values;
+    const payload = {
+      ...editing,
+      ...fields,
+      server_credential_id: fields.server_credential_id ?? null,
+    };
     setError("");
     try {
-      await api.upsertServer(editing);
+      await api.upsertServer(payload);
       await reconcileClientCredentials(
         clientCredentials,
-        editing.proxy_user,
-        selectedCredentialIds,
+        payload.proxy_user,
+        new Set(credentialIds),
       );
-      setEditing(null);
+      success(isNew ? "创建成功" : "更新成功");
       await load();
+      return true;
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "保存失败");
+      alert(err instanceof ApiError ? err.message : "保存失败");
+      return false;
     }
   }
 
@@ -219,35 +219,193 @@ export function ServersPage() {
     await load();
   }
 
+  const columns: ProColumns<ServerRecord>[] = [
+    {
+      title: "主机 / 代理登录名",
+      dataIndex: "proxy_user",
+      width: 280,
+      sorter: (a, b) => a.proxy_user.localeCompare(b.proxy_user),
+      render: (_, s) => (
+        <div className="host-cell">
+          <div className="host-identity">
+            <Typography.Text
+              strong
+              ellipsis={{ tooltip: s.proxy_user }}
+              style={{ maxWidth: "100%" }}
+            >
+              {s.proxy_user}
+            </Typography.Text>
+            <div className="host-address">
+              {s.connection_type === "agent"
+                ? s.target_host
+                : `${s.target_host}:${s.route_mode === "dynamic_port" ? "${PORT}" : s.target_port}`}
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: "接入方式",
+      dataIndex: "connection_type",
+      filters: [
+        { text: "SSH", value: "ssh" },
+        { text: "Agent", value: "agent" },
+      ],
+      width: 130,
+      render: (_, s) => (
+        <Tooltip
+          text={
+            s.connection_type === "agent"
+              ? "Agent 主动连接 · Token 认证"
+              : `${s.legacy_algorithms ? "兼容旧设备" : "现代算法"} · ${s.host_key_fingerprint ? "Host Key 已校验" : "Host Key 未校验"}${s.route_mode === "dynamic_port" ? ` · 端口 ${s.port_min}–${s.port_max}` : ""}`
+          }
+        >
+          <Tag className="connection-tag">
+            {s.connection_type === "agent"
+              ? "Agent"
+              : s.route_mode === "dynamic_port"
+                ? "SSH 动态端口"
+                : "SSH"}
+          </Tag>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "状态",
+      dataIndex: "enabled",
+      filters: [
+        { text: "已启用", value: "true" },
+        { text: "已禁用", value: "false" },
+      ],
+      width: 110,
+      render: (_, s) => (
+        <Badge
+          status={
+            !s.enabled
+              ? "default"
+              : s.connection_type === "agent"
+                ? s.agent_online
+                  ? "success"
+                  : "warning"
+                : "default"
+          }
+          text={
+            !s.enabled
+              ? "已禁用"
+              : s.connection_type === "agent"
+                ? s.agent_online
+                  ? "在线"
+                  : "离线"
+                : "已启用"
+          }
+        />
+      ),
+    },
+    {
+      title: "最近验证",
+      dataIndex: "last_test_ok",
+      filters: [
+        { text: "成功", value: "true" },
+        { text: "失败", value: "false" },
+      ],
+      width: 160,
+      render: (_, s) =>
+        s.route_mode === "dynamic_port" ? (
+          <Typography.Text type="secondary">按实际端口测试</Typography.Text>
+        ) : (
+          <TestStatus server={s} />
+        ),
+    },
+    {
+      title: "访问凭据",
+      key: "credentials",
+      width: 270,
+      render: (_, s) => (
+        <div className="credentials-cell">
+          <div className="credential-line">
+            <span className="credential-caption">客户端</span>
+            <ChipList
+              items={s.client_credential_labels ?? []}
+              emptyText="未关联"
+              max={2}
+            />
+          </div>
+          {s.connection_type !== "agent" && (
+            <div className="credential-line">
+              <span className="credential-caption">服务器</span>
+              <span className="credential-server">
+                {s.server_credential_id != null
+                  ? `${s.server_credential_label} · ${s.target_user}`
+                  : "未设置"}
+              </span>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: "操作",
+      key: "option",
+      width: 170,
+      fixed: screens.md ? "right" : undefined,
+      render: (_, s) => (
+        <div className="row-actions">
+          <Button type="link" size="small" onClick={() => startEdit(s)}>
+            编辑
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            disabled={s.route_mode === "dynamic_port" || testingAll}
+            loading={testingServer === s.proxy_user}
+            onClick={() => testOne(s.proxy_user)}
+          >
+            测试
+          </Button>
+          <Dropdown
+            menu={{
+              items: [
+                { key: "toggle", label: s.enabled ? "禁用" : "启用" },
+                ...(s.connection_type === "agent"
+                  ? []
+                  : [{ key: "copy", label: "复制" }]),
+                { key: "delete", label: "删除服务器", danger: true },
+              ],
+              onClick: ({ key }) => {
+                if (key === "toggle") void toggleEnabled(s);
+                if (key === "copy") duplicate(s);
+                if (key === "delete")
+                  void remove(s.proxy_user).catch(() => alert("删除失败"));
+              },
+            }}
+          >
+            <Button
+              type="text"
+              size="small"
+              aria-label="更多操作"
+              icon={<MoreOutlined />}
+            />
+          </Dropdown>
+        </div>
+      ),
+    },
+  ];
+  const view = useListView(servers, columns, "ServersPage", {
+    searchText: (s) => s.proxy_user + " " + s.target_host,
+    match: (s, key, value) =>
+      key === "connection_type"
+        ? (s.connection_type || "ssh") === value
+        : key === "enabled"
+          ? String(s.enabled) === value
+          : String(s.last_test_ok) === value,
+  });
+
   return (
     <PageContainer
-      title="服务器"
-      content="集中管理 SSH 主机与 Agent，快速查看连接状态和访问权限。"
-      extra={
-        <>
-          <div className="page-actions">
-            <Button
-              icon={<ReloadOutlined />}
-              aria-label="刷新"
-              onClick={() => load().catch(() => alert("刷新失败"))}
-            />
-            <Button
-              icon={<ImportOutlined />}
-              onClick={() => setImporting(true)}
-            >
-              导入
-            </Button>
-            <Button
-              type="primary"
-              aria-label="添加服务器"
-              icon={<PlusOutlined />}
-              onClick={startCreate}
-            >
-              添加服务器
-            </Button>
-          </div>
-        </>
-      }
+      title={false}
+      ghost
+      style={{ padding: 0 }}
+      breadcrumb={{ items: [{ title: "运维管理" }, { title: "服务器" }] }}
     >
       {error && !editing && (
         <p role="alert" className="mb-3 text-red-600">
@@ -255,477 +413,76 @@ export function ServersPage() {
         </p>
       )}
 
-      <div className="resource-panel">
-        <div className="table-toolbar">
-          <Segmented
-            aria-label="按接入方式筛选"
-            value={connectionFilter}
-            onChange={setConnectionFilter}
-            options={[
-              { value: "all", label: `全部主机  ${servers.length}` },
-              {
-                value: "ssh",
-                label: `SSH  ${servers.filter((s) => s.connection_type !== "agent").length}`,
-              },
-              {
-                value: "agent",
-                label: `Agent  ${servers.filter((s) => s.connection_type === "agent").length}`,
-              },
-            ]}
+      <ProTable<ServerRecord>
+        rowKey="id"
+
+        {...view.tableProps}
+        loading={loading}
+        headerTitle={
+          <ListToolbarSearch
+            value={view.query}
+            onSearch={view.search}
+            placeholder="搜索代理登录名 / 目标地址"
           />
-          <div className="table-tools">
-            <Input.Search
-              aria-label="搜索服务器"
-              placeholder="搜索代理登录名、目标地址"
-              allowClear
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+        }
+        toolBarRender={() => [
+          <Button key="create" type="primary" onClick={startCreate}>
+            新建服务器
+          </Button>,
+          <Button key="import" onClick={() => setImporting(true)}>
+            导入
+          </Button>,
+          <Button
+            key="test"
+            onClick={testAll}
+            loading={testingAll}
+            disabled={!servers.length}
+          >
+            测试全部
+          </Button>,
+          <ToolbarIconAction
+            key="refresh"
+            label="刷新"
+            icon={<RefreshIcon />}
+            disabled={loading}
+            onClick={() => {
+              void load().catch(() => alert("刷新失败"));
+            }}
+          />,
+          <ToolbarIconAction
+            key="clear"
+            label="清除筛选"
+            icon={<ClearOutlined />}
+            disabled={!view.hasFilters}
+            onClick={view.reset}
+          />,
+        ]}
+        locale={{
+          emptyText: (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                error
+                  ? "加载失败，请刷新重试"
+                  : view.hasFilters
+                    ? "未找到匹配记录，请修改筛选条件"
+                    : "暂无记录"
+              }
             />
-            <Button
-              onClick={testAll}
-              disabled={testingAll || servers.length === 0}
-            >
-              {testingAll ? "测试中…" : "测试全部"}
-            </Button>
-          </div>
-        </div>
-        <ProTable<ServerRecord>
-          search={false}
-          options={false}
-          cardProps={{ variant: "borderless" }}
-          rowKey="id"
-          size="middle"
-          scroll={{ x: 1120 }}
-          dataSource={servers.filter(
-            (s) =>
-              (connectionFilter === "all" ||
-                (s.connection_type || "ssh") === connectionFilter) &&
-              `${s.proxy_user} ${s.target_host}`
-                .toLowerCase()
-                .includes(search.toLowerCase()),
-          )}
-          pagination={{
-            defaultPageSize: 20,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 台`,
-          }}
-          columns={[
-            {
-              title: "主机 / 代理登录名",
-              dataIndex: "proxy_user",
-              width: 280,
-              sorter: (a, b) => a.proxy_user.localeCompare(b.proxy_user),
-              render: (_, s) => (
-                <div className="host-cell">
-                  <span
-                    className={`host-icon ${s.connection_type === "agent" ? "agent" : ""}`}
-                  >
-                    {s.connection_type === "agent" ? (
-                      <DesktopOutlined />
-                    ) : (
-                      <CloudServerOutlined />
-                    )}
-                  </span>
-                  <div className="host-identity">
-                    <Typography.Text
-                      strong
-                      ellipsis={{ tooltip: s.proxy_user }}
-                      style={{ maxWidth: "100%" }}
-                    >
-                      {s.proxy_user}
-                    </Typography.Text>
-                    <div className="host-address">
-                      {s.connection_type === "agent"
-                        ? s.target_host
-                        : `${s.target_host}:${s.route_mode === "dynamic_port" ? "${PORT}" : s.target_port}`}
-                    </div>
-                  </div>
-                </div>
-              ),
-            },
-            {
-              title: "接入方式",
-              width: 130,
-              render: (_, s) => (
-                <Tooltip
-                  text={
-                    s.connection_type === "agent"
-                      ? "Agent 主动连接 · Token 认证"
-                      : `${s.legacy_algorithms ? "兼容旧设备" : "现代算法"} · ${s.host_key_fingerprint ? "Host Key 已校验" : "Host Key 未校验"}${s.route_mode === "dynamic_port" ? ` · 端口 ${s.port_min}–${s.port_max}` : ""}`
-                  }
-                >
-                  <Tag className="connection-tag">
-                    {s.connection_type === "agent"
-                      ? "Agent"
-                      : s.route_mode === "dynamic_port"
-                        ? "SSH 动态端口"
-                        : "SSH"}
-                  </Tag>
-                </Tooltip>
-              ),
-            },
-            {
-              title: "状态",
-              width: 110,
-              render: (_, s) => (
-                <Badge
-                  status={
-                    !s.enabled
-                      ? "default"
-                      : s.connection_type === "agent"
-                        ? s.agent_online
-                          ? "success"
-                          : "warning"
-                        : "default"
-                  }
-                  text={
-                    !s.enabled
-                      ? "已禁用"
-                      : s.connection_type === "agent"
-                        ? s.agent_online
-                          ? "在线"
-                          : "离线"
-                        : "已启用"
-                  }
-                />
-              ),
-            },
-            {
-              title: "最近验证",
-              width: 160,
-              render: (_, s) =>
-                s.route_mode === "dynamic_port" ? (
-                  <Typography.Text type="secondary">
-                    按实际端口测试
-                  </Typography.Text>
-                ) : (
-                  <TestStatus server={s} />
-                ),
-            },
-            {
-              title: "访问凭据",
-              width: 270,
-              render: (_, s) => (
-                <div className="credentials-cell">
-                  <div className="credential-line">
-                    <span className="credential-caption">客户端</span>
-                    <ChipList
-                      items={s.client_credential_labels ?? []}
-                      emptyText="未关联"
-                      max={2}
-                    />
-                  </div>
-                  {s.connection_type !== "agent" && (
-                    <div className="credential-line">
-                      <span className="credential-caption">服务器</span>
-                      <span className="credential-server">
-                        {s.server_credential_id != null
-                          ? `${s.server_credential_label} · ${s.target_user}`
-                          : "未设置"}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              ),
-            },
-            {
-              title: "操作",
-              width: 170,
-              fixed: screens.md ? "right" : undefined,
-              render: (_, s) => (
-                <div className="row-actions">
-                  <Button type="link" size="small" onClick={() => startEdit(s)}>
-                    编辑
-                  </Button>
-                  <Button
-                    type="link"
-                    size="small"
-                    disabled={s.route_mode === "dynamic_port" || testingAll}
-                    loading={testingServer === s.proxy_user}
-                    onClick={() => testOne(s.proxy_user)}
-                  >
-                    测试
-                  </Button>
-                  <Dropdown
-                    menu={{
-                      items: [
-                        { key: "toggle", label: s.enabled ? "禁用" : "启用" },
-                        ...(s.connection_type === "agent"
-                          ? []
-                          : [{ key: "copy", label: "复制" }]),
-                        { key: "delete", label: "删除", danger: true },
-                      ],
-                      onClick: ({ key }) => {
-                        if (key === "toggle") void toggleEnabled(s);
-                        if (key === "copy") duplicate(s);
-                        if (key === "delete")
-                          void remove(s.proxy_user).catch(() =>
-                            alert("删除失败"),
-                          );
-                      },
-                    }}
-                  >
-                    <Button type="text" size="small">
-                      更多
-                    </Button>
-                  </Dropdown>
-                </div>
-              ),
-            },
-          ]}
-        />
-      </div>
+          ),
+        }}
+      />
 
       {editing && (
-        <Modal
-          open
-          title={isNew ? "添加服务器" : `编辑 ${editing.proxy_user}`}
-          onCancel={() => setEditing(null)}
-          footer={null}
-          width={600}
-          destroyOnHidden
-          styles={{
-            body: { maxHeight: "70vh", overflowY: "auto", paddingTop: 16 },
-          }}
-        >
-          <Field label="接入方式">
-            <p className="text-sm text-slate-600 ">
-              {editing.connection_type === "agent"
-                ? "Agent 自动注册"
-                : "SSH 直连"}
-            </p>
-          </Field>
-          {editing.connection_type !== "agent" && (
-            <Field label="路由模式">
-              <SelectDropdown
-                options={[
-                  { value: "fixed", label: "固定端口" },
-                  { value: "dynamic_port", label: "动态端口" },
-                ]}
-                value={editing.route_mode ?? "fixed"}
-                onChange={(value) =>
-                  setEditing({
-                    ...editing,
-                    route_mode: value,
-                    proxy_user:
-                      value === "dynamic_port" && !editing.proxy_user
-                        ? "server-${PORT}"
-                        : editing.proxy_user,
-                  })
-                }
-              />
-            </Field>
-          )}
-
-          <Field
-            label={
-              editing.route_mode === "dynamic_port"
-                ? "代理登录名模板(唯一)"
-                : "代理登录名(唯一)"
-            }
-          >
-            <Input
-              placeholder={
-                editing.route_mode === "dynamic_port"
-                  ? "server-${PORT}"
-                  : "例如 server-01"
-              }
-              value={editing.proxy_user}
-              readOnly={editing.connection_type === "agent"}
-              onChange={(e) =>
-                setEditing({ ...editing, proxy_user: e.target.value })
-              }
-            />
-            {editing.route_mode === "dynamic_port" && (
-              <p className="mt-1.5 text-xs text-slate-500 ">
-                ${"{PORT}"} 必须放在末尾。登录名中的端口会成为目标 SSH 端口。
-              </p>
-            )}
-          </Field>
-
-          {editing.connection_type !== "agent" && (
-            <>
-              <Field label="目标SSH服务器IP/域名">
-                <Input
-                  value={editing.target_host}
-                  onChange={(e) =>
-                    setEditing({ ...editing, target_host: e.target.value })
-                  }
-                />
-              </Field>
-
-              {editing.route_mode === "dynamic_port" ? (
-                <>
-                  <Field label="允许的目标端口范围">
-                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                      <Input
-                        type="number"
-                        min={1}
-                        max={65535}
-
-                        value={editing.port_min}
-                        onChange={(e) =>
-                          setEditing({
-                            ...editing,
-                            port_min: Number(e.target.value),
-                          })
-                        }
-                      />
-                      <span className="text-slate-400">至</span>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={65535}
-
-                        value={editing.port_max}
-                        onChange={(e) =>
-                          setEditing({
-                            ...editing,
-                            port_max: Number(e.target.value),
-                          })
-                        }
-                      />
-                    </div>
-                  </Field>
-                  {editing.proxy_user.endsWith("${PORT}") &&
-                    editing.target_host && (
-                      <div className="mb-3 rounded-md bg-slate-50 p-2.5 text-xs text-slate-600  ">
-                        示例:{" "}
-                        <code className="font-mono text-slate-800 ">
-                          {editing.proxy_user.replace("${PORT}", "8888")}
-                        </code>
-                        {" -> "}
-                        <code className="font-mono text-slate-800 ">
-                          {editing.target_host}:8888
-                        </code>
-                      </div>
-                    )}
-                </>
-              ) : (
-                <Field label="目标SSH服务器端口">
-                  <Input
-                    type="number"
-
-                    value={editing.target_port}
-                    onChange={(e) =>
-                      setEditing({
-                        ...editing,
-                        target_port: Number(e.target.value),
-                      })
-                    }
-                  />
-                </Field>
-              )}
-
-              <details className="mb-3 rounded-md border border-slate-200 ">
-                <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-slate-700 ">
-                  高级配置
-                  {(editing.legacy_algorithms ||
-                    editing.host_key_fingerprint) && (
-                    <span className="ml-2 text-xs font-normal text-indigo-600 ">
-                      已配置
-                    </span>
-                  )}
-                </summary>
-                <div className="border-t border-slate-200 px-3 pt-3 ">
-                  <Field label="连接算法">
-                    <SelectDropdown
-                      options={[
-                        { value: "modern", label: "现代算法(默认,推荐)" },
-                        { value: "legacy", label: "兼容旧设备" },
-                      ]}
-                      value={editing.legacy_algorithms ? "legacy" : "modern"}
-                      onChange={(value) =>
-                        setEditing({
-                          ...editing,
-                          legacy_algorithms: value === "legacy",
-                        })
-                      }
-                    />
-                    {editing.legacy_algorithms && (
-                      <p className="mt-1.5 text-xs text-amber-600 ">
-                        将附加弱加密算法,仅用于无法支持现代算法的老旧交换机等设备。
-                      </p>
-                    )}
-                  </Field>
-
-                  <Field label="目标机器 Host Key 指纹(可选)">
-                    <Input
-                      className="font-mono"
-                      placeholder="SHA256:..."
-                      value={editing.host_key_fingerprint ?? ""}
-                      onChange={(e) =>
-                        setEditing({
-                          ...editing,
-                          host_key_fingerprint: e.target.value,
-                        })
-                      }
-                    />
-                    <div className="mt-2 rounded-md bg-slate-50 p-2.5 text-xs text-slate-600  ">
-                      <p>登录目标主机执行:</p>
-                      <code className="mt-1 block overflow-x-auto whitespace-nowrap font-mono text-slate-800 ">
-                        ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
-                      </code>
-                      <p className="mt-1.5">
-                        只填写输出中的{" "}
-                        <code className="font-mono text-slate-800 ">
-                          SHA256:...
-                        </code>{" "}
-                        部分。
-                      </p>
-                    </div>
-                  </Field>
-                </div>
-              </details>
-
-              <Field label="服务器凭据(提供SSH登录名+密码/私钥)">
-                <SingleSelectDropdown
-                  options={serverCredentials.map((c) => ({
-                    id: c.id,
-                    label: `#${c.id} ${c.label}(${c.target_user})`,
-                  }))}
-                  value={editing.server_credential_id ?? null}
-                  onChange={(id) =>
-                    setEditing({
-                      ...editing,
-                      server_credential_id: id as number | null,
-                    })
-                  }
-                  placeholder="(不设置)"
-                  emptyText='还没有配置任何服务器凭据,先去"服务器凭据"页面添加'
-                />
-              </Field>
-            </>
-          )}
-          {editing.connection_type === "agent" && (
-            <p className="mb-3 text-sm text-slate-500">
-              此主机由 Agent 自动注册，访问权限可在下方修改。
-            </p>
-          )}
-
-          <Field label="客户端凭据(可多选)">
-            <MultiSelectDropdown
-              options={clientCredentials.map((c) => ({
-                id: c.id,
-                label: `#${c.id} ${c.label}`,
-                sublabel: `(${c.auth_type === "public_key" ? "公钥" : "密码"})`,
-              }))}
-              selectedIds={selectedCredentialIds}
-              onToggle={(id) => toggleCredential(id as number)}
-              placeholder="(未选择)"
-              emptyText='还没有配置任何客户端凭据,先去"客户端凭据"页面添加'
-            />
-          </Field>
-
-          {error && <p className="mb-2 text-sm text-red-600 ">{error}</p>}
-
-          <div className="mt-4 flex justify-end gap-2">
-            <Button onClick={() => setEditing(null)}>取消</Button>
-            <Button type="primary" onClick={save}>
-              保存
-            </Button>
-          </div>
-        </Modal>
+        <ServerForm
+          key={isNew ? "new" : editing.id}
+          initial={{ ...editing, credentialIds: [...selectedCredentialIds] }}
+          isNew={isNew}
+          serverCredentials={serverCredentials}
+          clientCredentials={clientCredentials}
+          onSave={save}
+          onClose={() => setEditing(null)}
+        />
       )}
 
       {importing && (
@@ -738,21 +495,6 @@ export function ServersPage() {
         />
       )}
     </PageContainer>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="mb-3">
-      <label className="mb-1 block text-xs text-slate-500 ">{label}</label>
-      {children}
-    </div>
   );
 }
 

@@ -1,4 +1,4 @@
-import { Collapse, Card, Input, Button } from "antd";
+import { Collapse, Input, Button } from "antd";
 import { useFeedback } from "./useFeedback";
 import { useEffect, useState } from "react";
 import {
@@ -112,7 +112,7 @@ export function SelfRegistrationSettings() {
   }
   const command = `.\\ops-ssh-agent.exe -token '${settings?.token ?? ""}'`;
   return (
-    <Card className="registration-card">
+    <section className="registration-card">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <h3 className="text-base font-semibold">自注册 Token</h3>
@@ -133,11 +133,12 @@ export function SelfRegistrationSettings() {
               id="registration-token"
               className="font-mono text-xs"
               type={visible ? "text" : "password"}
+              autoComplete="off"
               readOnly
               value={settings.token}
               onFocus={(e) => e.currentTarget.select()}
             />
-            <div className="flex flex-wrap gap-3 text-sm text-indigo-600 ">
+            <div className="flex flex-wrap gap-3 text-sm  ">
               <Button type="link" onClick={() => setVisible(!visible)}>
                 {visible ? "隐藏" : "显示"}
               </Button>
@@ -152,6 +153,7 @@ export function SelfRegistrationSettings() {
               <Input.TextArea
                 aria-label="Agent 启动命令"
                 className="h-28 font-mono text-xs"
+                autoComplete="off"
                 readOnly
                 value={command}
                 onFocus={(e) => e.currentTarget.select()}
@@ -243,6 +245,6 @@ export function SelfRegistrationSettings() {
           </p>
         )}
       </div>
-    </Card>
+    </section>
   );
 }

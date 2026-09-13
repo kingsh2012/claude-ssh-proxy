@@ -1,10 +1,15 @@
+import { ServerCredentialForm } from "./CredentialForms";
+import type { ProColumns } from "@ant-design/pro-components";
+import { Empty, Dropdown as ActionDropdown } from "antd";
+import { ReloadOutlined as RefreshIcon, MoreOutlined } from "@ant-design/icons";
+import { ToolbarIconAction } from "./ListControls";
+import { useListView } from "./useListView";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
-import { Grid, Button, Input, Modal, Tag } from "antd";
+import { Grid, Button, Tag } from "antd";
 import { useFeedback } from "./useFeedback";
 import { useEffect, useState } from "react";
 import { api, ApiError, type ServerRecord, type ServerCredential } from "./api";
 import { ChipList } from "./ChipList";
-import { MultiSelectDropdown, SelectDropdown } from "./MultiSelectDropdown";
 
 const emptyCredential: Omit<ServerCredential, "id"> = {
   label: "",
@@ -17,8 +22,9 @@ const emptyCredential: Omit<ServerCredential, "id"> = {
 };
 
 export function ServerCredentialsPage() {
+  const [loading, setLoading] = useState(false);
   const screens = Grid.useBreakpoint();
-  const { confirm, alert } = useFeedback();
+  const { confirm, alert, success } = useFeedback();
   const [creds, setCreds] = useState<ServerCredential[]>([]);
   const [servers, setServers] = useState<ServerRecord[]>([]);
   const [editing, setEditing] = useState<
@@ -27,12 +33,18 @@ export function ServerCredentialsPage() {
   const [error, setError] = useState("");
 
   async function load() {
-    const [c, r] = await Promise.all([
-      api.listServerCredentials(),
-      api.listServers(),
-    ]);
-    setCreds(c ?? []);
-    setServers(r ?? []);
+    setLoading(true);
+    try {
+      const [c, r] = await Promise.all([
+        api.listServerCredentials(),
+        api.listServers(),
+      ]);
+      setCreds(c ?? []);
+      setServers(r ?? []);
+      setError("");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -54,45 +66,37 @@ export function ServerCredentialsPage() {
     setError("");
   }
 
-  function toggleServer(proxyUser: string) {
-    if (!editing) return;
-    const set = new Set(editing.proxy_users);
-    if (set.has(proxyUser)) {
-      set.delete(proxyUser);
-    } else {
-      set.add(proxyUser);
-    }
-    setEditing({ ...editing, proxy_users: Array.from(set) });
-  }
-
-  async function save() {
-    if (!editing) return;
+  async function save(values: Omit<ServerCredential, "id">) {
+    if (!editing) return false;
+    const payload = { ...editing, ...values };
     setError("");
 
     // 取消勾选的服务器会失去这份凭据、认证方式变空,需要之后单独重新设置,先提醒一下。
     if (editing.id != null) {
       const before = creds.find((c) => c.id === editing.id);
       const removed = (before?.proxy_users ?? []).filter(
-        (ru) => !editing.proxy_users.includes(ru),
+        (ru) => !payload.proxy_users.includes(ru),
       );
       if (removed.length > 0) {
         const ok = await confirm(
           `取消勾选后,${removed.join(", ")} 会失去这份凭据,认证方式变空,需要单独重新设置密码/私钥或换一份凭据,确定继续吗?`,
         );
-        if (!ok) return;
+        if (!ok) return false;
       }
     }
 
     try {
       if (editing.id != null) {
-        await api.updateServerCredential(editing.id, editing);
+        await api.updateServerCredential(editing.id, payload);
       } else {
-        await api.createServerCredential(editing);
+        await api.createServerCredential(payload);
       }
-      setEditing(null);
+      success(editing.id != null ? "更新成功" : "创建成功");
       await load();
+      return true;
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "保存失败");
+      alert(err instanceof ApiError ? err.message : "保存失败");
+      return false;
     }
   }
 
@@ -106,16 +110,69 @@ export function ServerCredentialsPage() {
     }
   }
 
+  const columns: ProColumns<ServerCredential>[] = [
+    {
+      title: "名称",
+      dataIndex: "label",
+      width: 220,
+      sorter: (a, b) => a.label.localeCompare(b.label),
+    },
+    { title: "SSH 登录名", dataIndex: "target_user", width: 170 },
+    {
+      title: "认证方式",
+      key: "auth_type",
+      width: 120,
+      render: (_, c) => (
+        <Tag>{c.auth_type === "password" ? "密码" : "私钥"}</Tag>
+      ),
+    },
+    {
+      title: "绑定的服务器",
+      key: "proxy_users",
+      width: 360,
+      render: (_, c) => <ChipList items={c.proxy_users} emptyText="暂无关联" />,
+    },
+    {
+      title: "操作",
+      key: "option",
+      width: 95,
+      fixed: screens.md ? "right" : undefined,
+      render: (_, c) => (
+        <div className="row-actions">
+          <Button type="link" onClick={() => startEdit(c)}>
+            编辑
+          </Button>
+          <ActionDropdown
+            menu={{
+              items: [
+                {
+                  key: "delete",
+                  label: "删除服务器凭据",
+                  danger: true,
+                  onClick: () => remove(c.id, c.label),
+                },
+              ],
+            }}
+          >
+            <Button
+              type="text"
+              size="small"
+              aria-label="更多操作"
+              icon={<MoreOutlined />}
+            />
+          </ActionDropdown>
+        </div>
+      ),
+    },
+  ];
+  const view = useListView(creds, columns, "ServerCredentialsPage", {});
+
   return (
     <PageContainer
-      title="服务器凭据"
-      extra={
-        <>
-          <Button type="primary" onClick={startCreate}>
-            + 添加服务器凭据
-          </Button>
-        </>
-      }
+      title={false}
+      ghost
+      style={{ padding: 0 }}
+      breadcrumb={{ items: [{ title: "运维管理" }, { title: "服务器凭据" }] }}
     >
       {error && !editing && (
         <p role="alert" className="mb-3 text-red-600">
@@ -123,190 +180,50 @@ export function ServerCredentialsPage() {
         </p>
       )}
 
-      <p className="mb-4 text-sm text-slate-500 ">
-        多台服务器可以共用同一份凭据。已绑定服务器的凭据不能删除。
-      </p>
-
       <ProTable<ServerCredential>
-        search={false}
-        options={false}
-        cardProps={{ variant: "borderless" }}
         rowKey="id"
-        size="middle"
-        dataSource={creds}
-        scroll={{ x: 900 }}
-        pagination={{
-          defaultPageSize: 20,
-          showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 份`,
-        }}
-        columns={[
-          {
-            title: "名称",
-            dataIndex: "label",
-            width: 220,
-            sorter: (a, b) => a.label.localeCompare(b.label),
-          },
-          { title: "SSH 登录名", dataIndex: "target_user", width: 170 },
-          {
-            title: "认证方式",
-            width: 120,
-            render: (_, c) => (
-              <Tag>{c.auth_type === "password" ? "密码" : "私钥"}</Tag>
-            ),
-          },
-          {
-            title: "绑定的服务器",
-            render: (_, c) => (
-              <ChipList items={c.proxy_users} emptyText="暂无关联" />
-            ),
-          },
-          {
-            title: "操作",
-            width: 150,
-            fixed: screens.md ? "right" : undefined,
-            render: (_, c) => (
-              <div className="row-actions">
-                <Button type="link" onClick={() => startEdit(c)}>
-                  编辑
-                </Button>
-                <Button
-                  type="link"
-                  danger
-                  onClick={() => remove(c.id, c.label)}
-                >
-                  删除
-                </Button>
-              </div>
-            ),
-          },
+
+        {...view.tableProps}
+        loading={loading}
+        headerTitle={"服务器凭据"}
+        toolBarRender={() => [
+          <Button key="create" type="primary" onClick={startCreate}>
+            新建服务器凭据
+          </Button>,
+          <ToolbarIconAction
+            key="refresh"
+            label="刷新"
+            icon={<RefreshIcon />}
+            disabled={loading}
+            onClick={() => {
+              void load().catch(() => setError("刷新失败"));
+            }}
+          />,
         ]}
+        locale={{
+          emptyText: (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                error
+                  ? "加载失败，请刷新重试"
+                  : view.hasFilters
+                    ? "未找到匹配记录，请修改筛选条件"
+                    : "暂无记录"
+              }
+            />
+          ),
+        }}
       />
 
       {editing && (
-        <Modal
-          open
-          title={
-            editing.id != null ? `编辑 ${editing.label}` : "添加服务器凭据"
-          }
-          onCancel={() => setEditing(null)}
-          footer={null}
-          width={600}
-          destroyOnHidden
-          styles={{
-            body: { maxHeight: "70vh", overflowY: "auto", paddingTop: 16 },
-          }}
-        >
-          <div className="mb-3">
-            <label className="mb-1 block text-xs text-slate-500 ">
-              名称(比如"生产环境统一密码")
-            </label>
-            <Input
-              value={editing.label}
-              onChange={(e) =>
-                setEditing({ ...editing, label: e.target.value })
-              }
-              autoFocus
-            />
-          </div>
-
-          <div className="mb-3">
-            <label className="mb-1 block text-xs text-slate-500 ">
-              SSH登录名(比如 root)
-            </label>
-            <Input
-              value={editing.target_user}
-              onChange={(e) =>
-                setEditing({ ...editing, target_user: e.target.value })
-              }
-            />
-          </div>
-
-          <div className="mb-3">
-            <label className="mb-1 block text-xs text-slate-500 ">
-              认证方式
-            </label>
-            <SelectDropdown
-              options={[
-                { value: "password", label: "密码" },
-                { value: "private_key", label: "私钥" },
-              ]}
-              value={editing.auth_type}
-              onChange={(v) => setEditing({ ...editing, auth_type: v })}
-            />
-          </div>
-
-          {editing.auth_type === "password" ? (
-            <div className="mb-3">
-              <label className="mb-1 block text-xs text-slate-500 ">
-                {editing.id != null ? "密码(留空则不修改)" : "密码"}
-              </label>
-              <Input.Password
-                value={editing.auth_password}
-                onChange={(e) =>
-                  setEditing({ ...editing, auth_password: e.target.value })
-                }
-              />
-            </div>
-          ) : (
-            <>
-              <div className="mb-3">
-                <label className="mb-1 block text-xs text-slate-500 ">
-                  {editing.id != null
-                    ? "私钥内容(PEM,留空则不修改)"
-                    : "私钥内容(PEM)"}
-                </label>
-                <Input.TextArea
-                  className="h-24 font-mono"
-                  value={editing.auth_private_key}
-                  onChange={(e) =>
-                    setEditing({ ...editing, auth_private_key: e.target.value })
-                  }
-                />
-              </div>
-              <div className="mb-3">
-                <label className="mb-1 block text-xs text-slate-500 ">
-                  私钥密码(如果有)
-                </label>
-                <Input.Password
-                  value={editing.auth_private_key_passphrase}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      auth_private_key_passphrase: e.target.value,
-                    })
-                  }
-                />
-              </div>
-            </>
-          )}
-
-          <div className="mb-3">
-            <label className="mb-1 block text-xs text-slate-500 ">
-              绑定的服务器(可多选)
-            </label>
-            <MultiSelectDropdown
-              options={servers.map((r) => ({
-                id: r.proxy_user,
-                label: r.proxy_user,
-                sublabel: `(${r.target_host}:${r.target_port})`,
-              }))}
-              selectedIds={new Set(editing.proxy_users)}
-              onToggle={(id) => toggleServer(id as string)}
-              placeholder="(未选择)"
-              emptyText='还没有配置任何服务器,先去"服务器"页面添加'
-            />
-          </div>
-
-          {error && <p className="mb-2 text-sm text-red-600 ">{error}</p>}
-
-          <div className="mt-4 flex justify-end gap-2">
-            <Button onClick={() => setEditing(null)}>取消</Button>
-            <Button type="primary" onClick={save}>
-              保存
-            </Button>
-          </div>
-        </Modal>
+        <ServerCredentialForm
+          key={editing.id ?? "new"}
+          initial={editing}
+          servers={servers}
+          onSave={save}
+          onClose={() => setEditing(null)}
+        />
       )}
     </PageContainer>
   );

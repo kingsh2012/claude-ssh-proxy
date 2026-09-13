@@ -1,4 +1,4 @@
-import { CodeOutlined, UserOutlined, LockOutlined } from "@ant-design/icons";
+import { UserOutlined, LockOutlined } from "@ant-design/icons";
 import { LoginForm, ProFormText } from "@ant-design/pro-components";
 import { useState } from "react";
 import { api, ApiError, type MeResponse } from "./api";
@@ -12,7 +12,6 @@ export function Login({
   return (
     <div className="auth-screen">
       <LoginForm<{ username: string; password: string }>
-        logo={<CodeOutlined />}
         title="ops-ssh-proxy"
         subTitle="运维管理后台"
         submitter={{ searchConfig: { submitText: "登录" } }}

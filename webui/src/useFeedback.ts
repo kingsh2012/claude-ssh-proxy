@@ -2,11 +2,14 @@ import { App } from "antd";
 export function useFeedback() {
   const { modal, message } = App.useApp();
   return {
+    success: (content: string) => {
+      void message.success(content);
+    },
     confirm: (content: string) =>
       modal
         .confirm({
-          title: "确认操作",
-          content,
+          title: content,
+          okButtonProps: { danger: /删除|取消勾选|禁用/.test(content) },
           okText: "确定",
           cancelText: "取消",
         })

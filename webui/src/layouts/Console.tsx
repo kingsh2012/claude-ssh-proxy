@@ -1,4 +1,4 @@
-import { App as AntApp, Button, Spin } from "antd";
+import { App as AntApp, Button, Spin, Dropdown, Tooltip } from "antd";
 import { ProLayout } from "@ant-design/pro-components";
 import {
   CloudServerOutlined,
@@ -7,8 +7,8 @@ import {
   SettingOutlined,
   AuditOutlined,
   LinkOutlined,
-  LogoutOutlined,
-  CodeOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
 } from "@ant-design/icons";
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "@umijs/max";
@@ -30,6 +30,7 @@ const menuRoutes = [
 ];
 export default function Console() {
   const location = useLocation();
+  const [collapsed, setCollapsed] = useState(() => window.innerWidth < 992);
   const { message } = AntApp.useApp();
   const [me, setMe] = useState<MeResponse | null>(null);
   const [checked, setChecked] = useState(false);
@@ -84,29 +85,53 @@ export default function Console() {
   return (
     <ProLayout
       {...settings}
-      logo={<CodeOutlined />}
+      logo={false}
+      collapsed={collapsed}
+      onCollapse={setCollapsed}
+      collapsedButtonRender={false}
+      menuFooterRender={() => (
+        <Tooltip title={collapsed ? "展开导航" : undefined}>
+          <Button
+            type="text"
+            block
+            aria-label={collapsed ? "展开导航" : "收起导航"}
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed(!collapsed)}
+          >
+            {collapsed ? null : "收起"}
+          </Button>
+        </Tooltip>
+      )}
       location={location}
       route={{ path: "/", routes: menuRoutes }}
       menu={{ locale: false }}
       menuItemRender={(item, dom) => (
         <Link to={item.path || "/servers"}>{dom}</Link>
       )}
-      avatarProps={{
-        title: me.username,
-        style: { backgroundColor: "#1677ff" },
-        children: me.username.slice(0, 1).toUpperCase(),
-      }}
+      avatarProps={undefined}
       actionsRender={() => [
-        <Button
-          key="logout"
-          type="text"
-          icon={<LogoutOutlined />}
-          onClick={() =>
-            logout().catch(() => message.error("退出失败，请重试"))
-          }
+        <Dropdown
+          key="account"
+          menu={{
+            items: [
+              {
+                key: "logout",
+                label: "退出登录",
+                onClick: () => {
+                  void logout().catch(() => message.error("退出失败，请重试"));
+                },
+              },
+            ],
+          }}
         >
-          退出
-        </Button>,
+          <Button
+            type="text"
+            className="global-account-action"
+            aria-label="账号菜单"
+          >
+            {me.username}
+          </Button>
+        </Dropdown>,
       ]}
     >
       <Outlet />

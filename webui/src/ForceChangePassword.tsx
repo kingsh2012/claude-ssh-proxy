@@ -1,4 +1,3 @@
-import { CodeOutlined } from "@ant-design/icons";
 import { Input, Button } from "antd";
 import { useState } from "react";
 import { api, ApiError } from "./api";
@@ -34,9 +33,6 @@ export function ForceChangePassword({ onDone }: { onDone: () => void }) {
   return (
     <div className="auth-screen">
       <form onSubmit={handleSubmit} className="auth-card">
-        <div className="auth-symbol">
-          <CodeOutlined />
-        </div>
         <h1 className="mb-2 text-xl font-semibold text-slate-900 ">
           首次登录,请修改密码
         </h1>

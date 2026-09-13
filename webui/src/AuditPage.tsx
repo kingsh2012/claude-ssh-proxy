@@ -1,18 +1,31 @@
+import { useSearchParams } from "@umijs/max";
+import type { ProColumns } from "@ant-design/pro-components";
+import { Empty } from "antd";
+import {
+  ReloadOutlined as RefreshIcon,
+  ClearOutlined,
+} from "@ant-design/icons";
+import { ToolbarIconAction, TextColumnFilter } from "./ListControls";
+import { useListView } from "./useListView";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
-import { Input, Button, Tag, Typography, App } from "antd";
+import { Tag, Typography, App } from "antd";
 import { useEffect, useState } from "react";
 import { api, type AuditLog } from "./api";
 
 export function AuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [proxyUser, setProxyUser] = useState("");
-  const [targetHost, setTargetHost] = useState("");
-  const [clientCredentialLabel, setClientCredentialLabel] = useState("");
+  const [params] = useSearchParams();
+  const proxyUser = params.get("proxy_user") || "";
+  const targetHost = params.get("target_host") || "";
+  const clientCredentialLabel = params.get("client_credential_label") || "";
   const { message } = App.useApp();
-  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setRefreshing] = useState(false);
 
+  const [error, setError] = useState("");
   async function load() {
+    setRefreshing(true);
     try {
+      setError("");
       setLogs(
         (await api.listAudit(200, {
           proxyUser,
@@ -21,7 +34,10 @@ export function AuditPage() {
         })) ?? [],
       );
     } catch {
+      setError("读取审计日志失败");
       void message.error({ content: "读取审计日志失败", key: "audit-load" });
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -41,98 +57,75 @@ export function AuditPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proxyUser, targetHost, clientCredentialLabel]);
 
+  const columns: ProColumns<AuditLog>[] = [
+    {
+      title: "时间",
+      dataIndex: "ts",
+      width: 195,
+      render: (_, record) => new Date(record.ts).toLocaleString(),
+    },
+    {
+      title: "代理登录名",
+      dataIndex: "proxy_user",
+      filterDropdown: TextColumnFilter,
+      width: 180,
+    },
+    {
+      title: "客户端凭据",
+      dataIndex: "client_credential_label",
+      filterDropdown: TextColumnFilter,
+      width: 170,
+      render: (v) => v || "—",
+    },
+    {
+      title: "目标",
+      key: "target_host",
+      filterDropdown: TextColumnFilter,
+      width: 210,
+      render: (_, l) => `${l.target_host}:${l.target_port}`,
+    },
+    { title: "来源", dataIndex: "remote_addr", width: 180 },
+    {
+      title: "类型",
+      dataIndex: "event_type",
+      width: 100,
+      render: (v) => <Tag color="blue">{v}</Tag>,
+    },
+    {
+      title: "结果",
+      key: "result",
+      width: 165,
+      render: (_, l) => (
+        <Tag
+          color={
+            l.status === "running"
+              ? "processing"
+              : l.exit_status === 0
+                ? "success"
+                : "error"
+          }
+        >
+          {l.status === "running"
+            ? "运行中"
+            : l.exit_status === null
+              ? "未收到退出码"
+              : `退出码 ${l.exit_status}`}
+        </Tag>
+      ),
+    },
+  ];
+  const view = useListView(logs, columns, "AuditPage", { match: () => true });
+
   return (
     <PageContainer
-      title="审计日志"
-      extra={
-        <>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <Input
-              placeholder="按代理登录名过滤"
-              value={proxyUser}
-              onChange={(e) => setProxyUser(e.target.value)}
-            />
-            <Input
-              placeholder="按目标服务器过滤"
-              value={targetHost}
-              onChange={(e) => setTargetHost(e.target.value)}
-            />
-            <Input
-              placeholder="按客户端凭据过滤"
-              value={clientCredentialLabel}
-              onChange={(e) => setClientCredentialLabel(e.target.value)}
-            />
-            <Button onClick={refresh} disabled={refreshing}>
-              {refreshing ? "刷新中..." : "刷新"}
-            </Button>
-          </div>
-        </>
-      }
+      title={false}
+      ghost
+      style={{ padding: 0 }}
+      breadcrumb={{ items: [{ title: "运维管理" }, { title: "审计日志" }] }}
     >
-      <Typography.Paragraph type="secondary">
-        显示最近 200 条匹配记录，每 5 秒自动刷新。展开记录查看命令和输出。
-      </Typography.Paragraph>
       <ProTable<AuditLog>
-        search={false}
-        options={false}
-        cardProps={{ variant: "borderless" }}
         rowKey="id"
-        size="middle"
-        dataSource={logs}
-        scroll={{ x: 1200 }}
-        pagination={{
-          defaultPageSize: 20,
-          showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 条`,
-        }}
-        columns={[
-          {
-            title: "时间",
-            dataIndex: "ts",
-            width: 195,
-            render: (_, record) => new Date(record.ts).toLocaleString(),
-          },
-          { title: "代理登录名", dataIndex: "proxy_user", width: 180 },
-          {
-            title: "客户端凭据",
-            dataIndex: "client_credential_label",
-            width: 170,
-            render: (v) => v || "—",
-          },
-          {
-            title: "目标",
-            width: 210,
-            render: (_, l) => `${l.target_host}:${l.target_port}`,
-          },
-          { title: "来源", dataIndex: "remote_addr", width: 180 },
-          {
-            title: "类型",
-            dataIndex: "event_type",
-            width: 100,
-            render: (v) => <Tag color="blue">{v}</Tag>,
-          },
-          {
-            title: "结果",
-            width: 165,
-            render: (_, l) => (
-              <Tag
-                color={
-                  l.status === "running"
-                    ? "processing"
-                    : l.exit_status === 0
-                      ? "success"
-                      : "error"
-                }
-              >
-                {l.status === "running"
-                  ? "运行中"
-                  : l.exit_status === null
-                    ? "未收到退出码"
-                    : `退出码 ${l.exit_status}`}
-              </Tag>
-            ),
-          },
-        ]}
+
         expandable={{
           expandedRowRender: (l) => (
             <div className="audit-detail">
@@ -153,6 +146,39 @@ export function AuditPage() {
                 </pre>
               )}
             </div>
+          ),
+        }}
+        {...view.tableProps}
+        loading={loading}
+        headerTitle={"最近 200 条匹配记录 · 每 5 秒刷新"}
+        toolBarRender={() => [
+          <ToolbarIconAction
+            key="refresh"
+            label="刷新"
+            icon={<RefreshIcon />}
+            disabled={loading}
+            onClick={refresh}
+          />,
+          <ToolbarIconAction
+            key="clear"
+            label="清除筛选"
+            icon={<ClearOutlined />}
+            disabled={!view.hasFilters}
+            onClick={view.reset}
+          />,
+        ]}
+        locale={{
+          emptyText: (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                error
+                  ? "加载失败，请刷新重试"
+                  : view.hasFilters
+                    ? "未找到匹配记录，请修改筛选条件"
+                    : "暂无记录"
+              }
+            />
           ),
         }}
       />

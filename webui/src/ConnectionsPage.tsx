@@ -1,19 +1,29 @@
+import type { ProColumns } from "@ant-design/pro-components";
+import { Empty } from "antd";
+import { ReloadOutlined as RefreshIcon } from "@ant-design/icons";
+import { ToolbarIconAction } from "./ListControls";
+import { useListView } from "./useListView";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
-import { App, Badge, Button } from "antd";
+import { App, Badge } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { api, type ActiveConnection } from "./api";
 
 export function ConnectionsPage() {
+  const [loading, setLoading] = useState(false);
   const { message } = App.useApp();
   const [connections, setConnections] = useState<ActiveConnection[]>([]);
+  const error = "";
   const [now, setNow] = useState(Date.now());
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       setConnections((await api.listConnections()) ?? []);
       setNow(Date.now());
     } catch {
       void message.error({ content: "读取连接失败", key: "connections-load" });
+    } finally {
+      setLoading(false);
     }
   }, [message]);
 
@@ -23,61 +33,80 @@ export function ConnectionsPage() {
     return () => clearInterval(timer);
   }, [load]);
 
+  const columns: ProColumns<ActiveConnection>[] = [
+    { title: "代理登录名", dataIndex: "proxy_user", width: 180 },
+    {
+      title: "客户端凭据",
+      dataIndex: "client_credential_label",
+      width: 180,
+      render: (v) => v || "—",
+    },
+    { title: "来源", dataIndex: "remote_addr", width: 190 },
+    {
+      title: "目标服务器",
+      key: "target",
+      width: 240,
+      render: (_, c) => `${c.target_user}@${c.target_host}:${c.target_port}`,
+    },
+    {
+      title: "连接时间",
+      key: "connected_at",
+      width: 200,
+      render: (_, c) => new Date(c.connected_at).toLocaleString(),
+    },
+    {
+      title: "持续时间",
+      key: "duration",
+      width: 120,
+      render: (_, c) =>
+        formatDuration(now - new Date(c.connected_at).getTime()),
+    },
+    {
+      title: "会话数",
+      width: 90,
+      render: (_, c) => (
+        <Badge count={c.active_sessions} showZero color="#1677ff" />
+      ),
+    },
+  ];
+  const view = useListView(connections, columns, "ConnectionsPage", {});
+
   return (
     <PageContainer
-      title="当前连接"
-      extra={
-        <>
-          <Button onClick={load}>刷新</Button>
-        </>
-      }
+      title={false}
+      ghost
+      style={{ padding: 0 }}
+      breadcrumb={{ items: [{ title: "运维管理" }, { title: "当前连接" }] }}
     >
-      <p className="mb-4 text-slate-500">
-        每 3 秒自动刷新，当前 {connections.length} 条 SSH 连接。
-      </p>
       <ProTable<ActiveConnection>
-        search={false}
-        options={false}
-        cardProps={{ variant: "borderless" }}
         rowKey="id"
-        size="middle"
-        dataSource={connections}
-        scroll={{ x: 1150 }}
-        pagination={{ defaultPageSize: 20, showSizeChanger: true }}
-        columns={[
-          { title: "代理登录名", dataIndex: "proxy_user", width: 180 },
-          {
-            title: "客户端凭据",
-            dataIndex: "client_credential_label",
-            width: 180,
-            render: (v) => v || "—",
-          },
-          { title: "来源", dataIndex: "remote_addr", width: 190 },
-          {
-            title: "目标服务器",
-            width: 240,
-            render: (_, c) =>
-              `${c.target_user}@${c.target_host}:${c.target_port}`,
-          },
-          {
-            title: "连接时间",
-            width: 200,
-            render: (_, c) => new Date(c.connected_at).toLocaleString(),
-          },
-          {
-            title: "持续时间",
-            width: 120,
-            render: (_, c) =>
-              formatDuration(now - new Date(c.connected_at).getTime()),
-          },
-          {
-            title: "会话数",
-            width: 90,
-            render: (_, c) => (
-              <Badge count={c.active_sessions} showZero color="#1677ff" />
-            ),
-          },
+
+        {...view.tableProps}
+        loading={loading}
+        headerTitle={`当前 ${connections.length} 条连接 · 每 3 秒刷新`}
+        toolBarRender={() => [
+          <ToolbarIconAction
+            key="refresh"
+            label="刷新"
+            icon={<RefreshIcon />}
+            disabled={loading}
+            onClick={load}
+          />,
         ]}
+        locale={{
+          emptyText: (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                error
+                  ? "加载失败，请刷新重试"
+                  : view.hasFilters
+                    ? "未找到匹配记录，请修改筛选条件"
+                    : "暂无记录"
+              }
+            />
+          ),
+        }}
       />
     </PageContainer>
   );

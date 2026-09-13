@@ -1,4 +1,5 @@
-import { App, Badge, Button, Table } from "antd";
+import { PageContainer, ProTable } from "@ant-design/pro-components";
+import { App, Badge, Button } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { api, type ActiveConnection } from "./api";
 
@@ -23,16 +24,21 @@ export function ConnectionsPage() {
   }, [load]);
 
   return (
-    <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-900 ">当前连接</h2>
-        <Button onClick={load}>刷新</Button>
-      </div>
-
+    <PageContainer
+      title="当前连接"
+      extra={
+        <>
+          <Button onClick={load}>刷新</Button>
+        </>
+      }
+    >
       <p className="mb-4 text-slate-500">
         每 3 秒自动刷新，当前 {connections.length} 条 SSH 连接。
       </p>
-      <Table<ActiveConnection>
+      <ProTable<ActiveConnection>
+        search={false}
+        options={false}
+        cardProps={{ variant: "borderless" }}
         rowKey="id"
         size="middle"
         dataSource={connections}
@@ -73,7 +79,7 @@ export function ConnectionsPage() {
           },
         ]}
       />
-    </div>
+    </PageContainer>
   );
 }
 

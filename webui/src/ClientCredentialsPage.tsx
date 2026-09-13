@@ -1,4 +1,5 @@
-import { Grid, Button, Input, Modal, Table, Tag } from "antd";
+import { PageContainer, ProTable } from "@ant-design/pro-components";
+import { Grid, Button, Input, Modal, Tag } from "antd";
 import { useFeedback } from "./useFeedback";
 import { useEffect, useState } from "react";
 import { api, ApiError, type ClientCredential, type ServerRecord } from "./api";
@@ -120,24 +121,30 @@ export function ClientCredentialsPage() {
   }
 
   return (
-    <div>
+    <PageContainer
+      title="客户端凭据"
+      extra={
+        <>
+          <Button type="primary" onClick={startCreate}>
+            + 添加客户端凭据
+          </Button>
+        </>
+      }
+    >
       {error && !editing && (
         <p role="alert" className="mb-3 text-red-600">
           {error}
         </p>
       )}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-900 ">客户端凭据</h2>
-        <Button type="primary" onClick={startCreate}>
-          + 添加客户端凭据
-        </Button>
-      </div>
 
       <p className="mb-4 text-sm text-slate-500 ">
         每份凭据代表一个客户端身份,可以绑定多台服务器。
       </p>
 
-      <Table<ClientCredential>
+      <ProTable<ClientCredential>
+        search={false}
+        options={false}
+        cardProps={{ variant: "borderless" }}
         rowKey="id"
         size="middle"
         dataSource={creds}
@@ -297,6 +304,6 @@ export function ClientCredentialsPage() {
           </div>
         </Modal>
       )}
-    </div>
+    </PageContainer>
   );
 }

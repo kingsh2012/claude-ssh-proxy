@@ -1,157 +1,214 @@
 @import "tailwindcss";
 body {
   margin: 0;
-  color: #1f2937;
-  background: #f4f6f9;
 }
-.console-layout {
-  min-height: 100vh;
-}
-.console-sider {
-  border-right: 1px solid #e8edf3;
-  position: sticky !important;
-  top: 0;
-  height: 100vh;
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 25px 18px 30px;
-  font-size: 16px;
-  font-weight: 650;
-  color: #14263c;
-}
-.brand > .anticon {
-  font-size: 26px;
-  color: #1677ff;
-}
-.brand small {
-  display: block;
-  font-size: 11px;
-  font-weight: 400;
-  color: #8c97a5;
-  margin-top: 3px;
-}
-.console-sider .ant-menu {
-  border-inline-end: none !important;
-  padding: 0 8px;
-}
-.sider-note {
-  position: absolute;
-  bottom: 22px;
-  width: 100%;
-  text-align: center;
-  color: #97a3b2;
-  font-size: 11px;
-}
-.console-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  height: 64px;
-  padding: 0 28px;
-  border-bottom: 1px solid #e8edf3;
-  line-height: normal;
-}
-.console-content {
-  min-width: 0;
-  padding: 28px;
-}
-.console-content > div {
+.ant-pro-layout .ant-layout-content {
   min-width: 0;
 }
-.console-content h2 {
-  font-size: 22px;
-  font-weight: 600;
+.ant-pro-page-container-children-container > div {
+  min-width: 0;
+}
+.page-actions,
+.table-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.resource-panel {
+  background: #fff;
+  border-radius: 6px;
+  min-width: 0;
 }
 .table-toolbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px;
-  margin: 18px 0;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px 0;
 }
-.ant-table-wrapper {
-  min-width: 0;
-  background: #fff;
-  border: 1px solid #e8edf3;
-  border-radius: 10px;
-  overflow: hidden;
-}
-.ant-table-wrapper .ant-table-pagination {
-  padding: 0 16px;
+.table-tools .ant-input-search {
+  width: 260px;
 }
 .ant-table-cell {
   overflow-wrap: anywhere;
 }
+
+.host-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.host-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 36px;
+  border: 1px solid #e6ebf1;
+  border-radius: 8px;
+  color: #8191a5;
+  background: #fafbfd;
+  font-size: 17px;
+}
+
+.host-icon.agent {
+  color: #5a9b8e;
+  background: #f1f8f5;
+  border-color: #dcece5;
+}
+
+.host-identity {
+  min-width: 0;
+  flex: 1;
+}
+
+.host-identity .ant-typography {
+  font-size: 14px;
+  font-weight: 600;
+  color: #304158;
+}
+
+.host-address {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: #8b96a5;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.credentials-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.credential-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.credential-caption {
+  font-size: 12px;
+  color: #8c8c8c;
+  flex-shrink: 0;
+}
+
+.credential-server {
+  font-size: 12px;
+  color: #758293;
+}
+
 .row-actions {
   display: flex;
   align-items: center;
   white-space: nowrap;
 }
-.row-actions .ant-btn {
-  padding-inline: 6px;
-}
+
 .chip-list {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
 }
-.chip-list .ant-tag {
-  margin: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+
+.test-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
+
+.test-result {
+  font-size: 12px;
+}
+
+.test-result.success {
+  color: #52c41a;
+}
+
+.test-result.failure {
+  color: #ff4d4f;
+  cursor: help;
+  border-bottom: 1px dotted #dca2a6;
+}
+
+.test-time {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.muted-text {
+  font-size: 12px;
+  color: #98a2af;
+}
+
 .settings-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(340px, 1.6fr);
-  gap: 20px;
+  grid-template-columns: minmax(280px, 1fr) minmax(340px, 1.5fr);
+  gap: 22px;
   align-items: start;
 }
+
 .registration-card {
   grid-column: 2;
   grid-row: 1 / span 2;
 }
-.settings-grid .ant-card {
-  min-width: 0;
+
+.settings-grid h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #354254;
 }
+
+.settings-grid p {
+  color: #83909f;
+  line-height: 1.8;
+  font-size: 12px;
+}
+
+.settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.settings-fields > .ant-btn {
+  align-self: flex-start;
+}
+
+.agent-command {
+  overflow-x: auto;
+  background: #1d2b38;
+  color: #c2dfd3;
+  padding: 20px;
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.registration-card .space-y-3 > * {
+  margin-bottom: 16px;
+}
+
+.registration-card .space-y-3 > *:last-child {
+  margin-bottom: 0;
+}
+
 .loading-screen {
   min-height: 100vh;
   display: grid;
   place-items: center;
 }
+
 .table-scroll {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-}
-@media (max-width: 991px) {
-  .console-content {
-    padding: 16px;
-  }
-  .console-header {
-    padding: 0 16px;
-  }
-  .settings-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .registration-card {
-    grid-column: auto;
-    grid-row: auto;
-  }
-}
-@media (max-width: 480px) {
-  .console-content {
-    padding: 12px;
-  }
-  .ant-card .ant-card-body {
-    padding: 16px;
-  }
 }
 
 .audit-detail pre {
@@ -161,17 +218,47 @@ body {
   overflow-wrap: anywhere;
   background: #f5f7fa;
   border: 1px solid #e8edf3;
-  border-radius: 6px;
-  padding: 12px;
-  margin: 8px 0 14px;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 10px 0 16px;
   font-size: 12px;
 }
-
-.settings-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+@media (max-width: 991px) {
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .registration-card {
+    grid-column: auto;
+    grid-row: auto;
+  }
 }
-.settings-fields > .ant-btn {
-  align-self: flex-start;
+@media (max-width: 600px) {
+  .table-toolbar {
+    padding: 12px;
+  }
+  .table-tools {
+    width: 100%;
+  }
+  .table-tools .ant-input-search {
+    width: auto;
+    min-width: 0;
+    flex: 1;
+  }
+  .ant-pro-page-container .ant-page-header-heading-extra {
+    max-width: 100%;
+  }
+}
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #f5f5f5;
+}
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 32px;
+  background: white;
+  border-radius: 6px;
 }

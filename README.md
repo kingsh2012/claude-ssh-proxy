@@ -1,6 +1,6 @@
 # ops-ssh-proxy
 
-一个给 AI Agent(如 Claude)使用的 SSH 反向代理:Agent 用一个代理登录名连接到 proxy,proxy 校验身份后自动路由、连接到真正的目标机器,并把 Agent 在会话里执行的操作记录成审计日志。同时内置一个 React + Ant Design 的 Web 管理后台,用来维护路由、监听地址和查看审计记录。
+一个给 AI Agent(如 Claude)使用的 SSH 反向代理:Agent 用一个代理登录名连接到 proxy,proxy 校验身份后自动路由、连接到真正的目标机器,并把 Agent 在会话里执行的操作记录成审计日志。同时内置一个 Ant Design Pro 精简版 Web 管理后台,用来维护路由、监听地址和查看审计记录。
 
 ## 解决什么问题
 
@@ -41,6 +41,8 @@ Windows 无法安装 OpenSSH 或不开放入站端口时，可运行单文件 `o
 - Agent 通过 WSS 连接 `/agent`；不需要 NATS。
 - 首版支持非交互命令，每台设备一个任务，最长 5 分钟；暂不支持 SFTP、PTY、stdin 和端口转发。
 - 项目现名为 `ops-ssh-proxy`，Windows 客户端为 `ops-ssh-agent.exe`。编译、HTTPS 配置、启动与文件读取示例见 [Windows Agent 接入说明](docs/20260911-windows-agent.md)。
+
+前端开发与官方骨架来源见 [前端说明](webui/README.md)。
 
 ## 快速开始
 

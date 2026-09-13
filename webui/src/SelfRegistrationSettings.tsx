@@ -162,7 +162,7 @@ export function SelfRegistrationSettings() {
         <p className="text-sm text-slate-500">
           默认使用 Windows 主机名作为代理登录名，也可指定：
         </p>
-        <pre className="overflow-x-auto rounded bg-slate-100 p-3 text-xs ">{`.\\ops-ssh-agent.exe -token '自注册Token' -hostname 'es-windows-01'`}</pre>
+        <pre className="agent-command">{`.\\ops-ssh-agent.exe -token '自注册Token' -hostname 'es-windows-01'`}</pre>
         <Collapse
           ghost
           destroyOnHidden

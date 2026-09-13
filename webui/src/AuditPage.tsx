@@ -1,4 +1,5 @@
-import { Input, Button, Table, Tag, Typography, App } from "antd";
+import { PageContainer, ProTable } from "@ant-design/pro-components";
+import { Input, Button, Tag, Typography, App } from "antd";
 import { useEffect, useState } from "react";
 import { api, type AuditLog } from "./api";
 
@@ -41,35 +42,40 @@ export function AuditPage() {
   }, [proxyUser, targetHost, clientCredentialLabel]);
 
   return (
-    <div>
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-lg font-semibold text-slate-900 ">审计日志</h2>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <Input
-            placeholder="按代理登录名过滤"
-            value={proxyUser}
-            onChange={(e) => setProxyUser(e.target.value)}
-          />
-          <Input
-            placeholder="按目标服务器过滤"
-            value={targetHost}
-            onChange={(e) => setTargetHost(e.target.value)}
-          />
-          <Input
-            placeholder="按客户端凭据过滤"
-            value={clientCredentialLabel}
-            onChange={(e) => setClientCredentialLabel(e.target.value)}
-          />
-          <Button onClick={refresh} disabled={refreshing}>
-            {refreshing ? "刷新中..." : "刷新"}
-          </Button>
-        </div>
-      </div>
-
+    <PageContainer
+      title="审计日志"
+      extra={
+        <>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <Input
+              placeholder="按代理登录名过滤"
+              value={proxyUser}
+              onChange={(e) => setProxyUser(e.target.value)}
+            />
+            <Input
+              placeholder="按目标服务器过滤"
+              value={targetHost}
+              onChange={(e) => setTargetHost(e.target.value)}
+            />
+            <Input
+              placeholder="按客户端凭据过滤"
+              value={clientCredentialLabel}
+              onChange={(e) => setClientCredentialLabel(e.target.value)}
+            />
+            <Button onClick={refresh} disabled={refreshing}>
+              {refreshing ? "刷新中..." : "刷新"}
+            </Button>
+          </div>
+        </>
+      }
+    >
       <Typography.Paragraph type="secondary">
         显示最近 200 条匹配记录，每 5 秒自动刷新。展开记录查看命令和输出。
       </Typography.Paragraph>
-      <Table<AuditLog>
+      <ProTable<AuditLog>
+        search={false}
+        options={false}
+        cardProps={{ variant: "borderless" }}
         rowKey="id"
         size="middle"
         dataSource={logs}
@@ -84,7 +90,7 @@ export function AuditPage() {
             title: "时间",
             dataIndex: "ts",
             width: 195,
-            render: (v) => new Date(v).toLocaleString(),
+            render: (_, record) => new Date(record.ts).toLocaleString(),
           },
           { title: "代理登录名", dataIndex: "proxy_user", width: 180 },
           {
@@ -150,6 +156,6 @@ export function AuditPage() {
           ),
         }}
       />
-    </div>
+    </PageContainer>
   );
 }

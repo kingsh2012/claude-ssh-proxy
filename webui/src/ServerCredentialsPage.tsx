@@ -1,4 +1,5 @@
-import { Grid, Button, Input, Modal, Table, Tag } from "antd";
+import { PageContainer, ProTable } from "@ant-design/pro-components";
+import { Grid, Button, Input, Modal, Tag } from "antd";
 import { useFeedback } from "./useFeedback";
 import { useEffect, useState } from "react";
 import { api, ApiError, type ServerRecord, type ServerCredential } from "./api";
@@ -106,24 +107,30 @@ export function ServerCredentialsPage() {
   }
 
   return (
-    <div>
+    <PageContainer
+      title="服务器凭据"
+      extra={
+        <>
+          <Button type="primary" onClick={startCreate}>
+            + 添加服务器凭据
+          </Button>
+        </>
+      }
+    >
       {error && !editing && (
         <p role="alert" className="mb-3 text-red-600">
           {error}
         </p>
       )}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-900 ">服务器凭据</h2>
-        <Button type="primary" onClick={startCreate}>
-          + 添加服务器凭据
-        </Button>
-      </div>
 
       <p className="mb-4 text-sm text-slate-500 ">
         多台服务器可以共用同一份凭据。已绑定服务器的凭据不能删除。
       </p>
 
-      <Table<ServerCredential>
+      <ProTable<ServerCredential>
+        search={false}
+        options={false}
+        cardProps={{ variant: "borderless" }}
         rowKey="id"
         size="middle"
         dataSource={creds}
@@ -301,6 +308,6 @@ export function ServerCredentialsPage() {
           </div>
         </Modal>
       )}
-    </div>
+    </PageContainer>
   );
 }

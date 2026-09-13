@@ -1,3 +1,4 @@
+import { PageContainer } from "@ant-design/pro-components";
 import { Card, Input, Button } from "antd";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
@@ -43,11 +44,10 @@ export function SettingsPage() {
   }
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900 ">服务设置</h2>
-      </div>
-
+    <PageContainer
+      title="服务设置"
+      content="管理监听地址、Agent 接入与账号安全。"
+    >
       <div className="settings-grid">
         <Card>
           <h3 className="mb-3 text-base font-semibold text-slate-900 ">
@@ -95,6 +95,6 @@ export function SettingsPage() {
           </div>
         </Card>
       </div>
-    </div>
+    </PageContainer>
   );
 }

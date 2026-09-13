@@ -15,3 +15,6 @@ webui/dist/
 agent-config.json
 
 agent-config.toml
+
+webui/src/.umi/
+webui/src/.umi-production/

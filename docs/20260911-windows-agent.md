@@ -228,11 +228,16 @@ Remove-Item -LiteralPath 'Cert:\CurrentUser\Root\55C80A83352F2133B05F832AA9E2921
 - 本地发布包、截图和验证结果在 `dist/20260914-v0.0.25/`；服务器同次部署目录保存发布信息、部署脚本和 `deployment-verification.json`。公网 WSS 入口尚未配置，本次 UI 发版没有生成生产自注册 Token。
 
 
-## 绿色主题与原生 ProTable 交互（2026-09-14，待发布）
+## 绿色主题与原生 ProTable 交互（2026-09-14，v0.0.26 已部署）
 
 - 按用户指定，登录 VPS `45.32.199.207` 阅读 `/root/yalule-admin/docs/frontend-design/`，并参考实际主题、全局样式、工具栏和用户管理页面；源码参考提交 `0bb6c64c6f72b8cb2a19fc09fbeede018ad32538`。样式参数和本项目适配边界见 [前端说明](../webui/README.md)。
 - 用户最终确定绿色品牌主题和纯文字品牌，不使用图片 Logo。顶栏 48px、侧栏 208px、页面边距 12px；工作区使用与面包屑相接的单层白底表面，服务设置取消同级嵌套卡片。
 - 五个表格页使用 ProTable 原生工具栏和列设置；主机的接入方式、启用状态和连接结果移到列头筛选。搜索回车生效、清空立即撤销，查询与分页写入 URL。默认每页 50 条，列设置由 ProTable 自身持久化。
 - 服务器和两类凭据的新建、编辑改用 ModalForm；危险行内动作统一收进三点菜单，保留具体对象确认。Agent 自动注册、Token 管理、CSV 导入和连接报错仅悬停查看保持现有语义。
 - 验证通过：lint、TypeScript、生产构建和 Go 嵌入构建；Chrome 在 1920、1440、1024、390 像素宽度均无整页横向溢出。验证了原生列设置持久化、URL 筛选恢复、50 条分页与搜索归位、主机和凭据表单提交参数、表单状态隔离、公钥名称提取、Token 生成、登录与首次改密、审计展开和报错悬停。业务 API 使用样例数据，未在生产执行测试写操作；无页面运行错误。截图和结果在本地 `dist/20260914-green-ui/`。
-- 此轮是本地界面改造，尚未发布或部署；线上继续使用 `v0.0.25`。
+- 已发布 [v0.0.26](https://github.com/kingsh2012/claude-ssh-proxy/releases/tag/v0.0.26)，代码提交 `86380ad0ddeab5f73a71146ba6ccad55a3738df0`。[CI](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34775151652) 和 [Release 构建](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34775151910) 全部通过。
+- `192.168.102.7` 已安装正式发布包，程序版本 `v0.0.26`；`ops-ssh-proxy.service` 为 `active/running`，开机启用，自动重启次数 0。后台 `http://192.168.102.7:8080` 和 SSH `2222` 保持原值。
+- 发布包摘要与 GitHub 资产一致。Linux tar.gz SHA-256：`79a8a062ceeb5151742ae0977fd4d3bd4cfd099759c3ac6f88cb305b4e9c30f2`；Windows ZIP：`ca75e181a5183b2deb1f3181d1014822ed78f1d0c746f0c08ce1961db902a17f`；服务器二进制：`56b9cbbe1bad2054449a4c676695d02652c92758335263754f7dcbc7bb743edb`。
+- 升级前停服一致性备份位于 `/data/claude-ssh-proxy/20260914-v0.0.26-deploy-ejob4_ss/production-backup`。38 台主机、3 份服务器凭据、3 份客户端凭据、39 条绑定、1 个管理员、1651 条审计及其他表逐项保留；完整性和外键检查通过。密钥、SSH host key、数据库路径和服务配置均未改变。
+- 生产服务的 HTTP 资源、鉴权和 SSH 握手检查通过；真实未登录浏览器访问登录页正常，主按钮实际颜色为 `rgb(21, 128, 61)`。使用生产静态资源配合样例 API 复验四种宽度、列设置保存、URL 筛选、分页、表单提交与隔离、Token 和登录流程，无页面运行错误，测试未修改生产业务数据。
+- 发布资产、截图和检查结果保存在本地 `dist/20260914-v0.0.26/`；服务器同次部署目录保留发布信息、部署脚本和验证结果。生产公网 WSS 尚未配置，本次没有生成生产自注册 Token。

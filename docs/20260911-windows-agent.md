@@ -198,3 +198,18 @@ Remove-Item -LiteralPath 'Cert:\CurrentUser\Root\55C80A83352F2133B05F832AA9E2921
 - `192.168.102.7` 上生产库副本隔离演练通过：38 台主机、3 份服务器凭据、3 份客户端凭据、39 条绑定、1 个管理员、1651 条审计及旧接入表内容全部保留；完整性与外键检查通过，新增 3 张自注册表。副本为隔离监听新增/修改了 `listen_addr`，正式数据库和服务未变。
 - 演练目录：`/data/claude-ssh-proxy/20260914-ops-review-3yhyk482`，仅限 root；包含副本数据库及其密钥、候选程序和 `verification.json`。隔离进程已停止。
 - 候选 Linux 程序 SHA-256：`7be9642d706a84ecaaedc4528eced51af491279d5263137b8c653a8c62c2a465`。安装脚本已通过 Linux Bash 语法检查，并强制保留 LF 换行。
+
+## v0.0.24 正式发布与部署（2026-09-14）
+
+- 用户明确授权发版部署后，提交 `f9d87f7897c6cfabdedf247eaadfcd0b80ee91e7` 并推送 `v0.0.24` 标签。[GitHub Release](https://github.com/kingsh2012/claude-ssh-proxy/releases/tag/v0.0.24) 已发布 Linux 服务端和 Windows Agent 安装包。
+- [CI](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34769505093) 成功：Linux 全量 race 测试、Windows Agent/SSH 集成测试、构建和 vet 通过；[Release 构建](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34769508876) 成功。
+- 生产环境使用 GitHub Release 的正式 Linux 产物，部署前已与发布资产 SHA-256 核对。程序为 `/usr/local/bin/ops-ssh-proxy`，`-version` 返回 `v0.0.24`。
+- 新服务 `ops-ssh-proxy.service` 已启用开机启动，状态 `active/running`，自动重启次数 0；旧 `claude-ssh-proxy.service` 已停止并禁用，旧 unit 和程序保留用于回退。
+- 数据库仍为 `/data/claude-ssh-proxy/claude-ssh-proxy.db`；数据库密钥、SSH host key、后台 `http://192.168.102.7:8080` 和 SSH `2222` 保持原值。未重新生成账号或凭据。
+- 切换前没有活动 SSH 连接。停机后完成一致性备份，位置：`/data/claude-ssh-proxy/20260914-v0.0.24-deploy-01vsp_yc/production-backup`。备份含旧程序、unit、数据库及停机时存在的 SQLite 配套文件、`.db.key` 和 host key，仅限 root。
+- 正式库迁移后逐项核对一致：38 台主机、3 份服务器凭据、3 份客户端凭据、39 条绑定、1 个管理员、1 条设置、1651 条审计，以及两张旧接入表。新增 3 张自注册表，默认没有启用共享 Token。完整性、外键和密钥摘要检查通过。
+- 本机与服务端均确认新版页面可访问，正式设置资源包含 `ops-ssh-agent.exe`、`-hostname`；未认证 `/api/me`、`/api/settings/agent-registration`、`/agent` 均返回 401，SSH 握手正常。没有逐台测试后端服务器连通性。
+- 服务器部署目录包含 `release.json`、`deployment-verification.json` 和部署回退脚本。若需回退，先停新服务，再成套恢复备份中的旧数据库、配套文件及密钥，启用旧服务；不要用旧数据库覆盖仍运行的服务。
+- 正式程序 SHA-256：`709136f4eb0c65a35d720b71299cb634b743c75cb96cf6af08386ae2efc06eef`。
+- Linux 发布包 SHA-256：`838fd3997eb8b04b24e2ffabb996b8944baa75308e647ba505ff94f3eb127b85`；Windows 发布包 SHA-256：`a8f0418066b756f7931968c14affc4bbf5696d497e1fc0b37074323989a2b915`。本地 `dist` 的同名二进制和安装包已同步为正式发布产物。
+- 正式 HTTPS/WSS 入口仍待配置。在“服务设置”填写实际可达的 WSS 地址与默认客户端凭据后生成共享 Token；本次未将测试地址写入生产配置。

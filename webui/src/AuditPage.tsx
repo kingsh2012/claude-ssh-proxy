@@ -1,3 +1,4 @@
+import { Input, Button, Table, Tag, Typography, App } from "antd";
 import { useEffect, useState } from "react";
 import { api, type AuditLog } from "./api";
 
@@ -6,11 +7,21 @@ export function AuditPage() {
   const [proxyUser, setProxyUser] = useState("");
   const [targetHost, setTargetHost] = useState("");
   const [clientCredentialLabel, setClientCredentialLabel] = useState("");
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const { message } = App.useApp();
   const [refreshing, setRefreshing] = useState(false);
 
   async function load() {
-    setLogs((await api.listAudit(200, { proxyUser, targetHost, clientCredentialLabel })) ?? []);
+    try {
+      setLogs(
+        (await api.listAudit(200, {
+          proxyUser,
+          targetHost,
+          clientCredentialLabel,
+        })) ?? [],
+      );
+    } catch {
+      void message.error({ content: "读取审计日志失败", key: "audit-load" });
+    }
   }
 
   async function refresh() {
@@ -32,101 +43,113 @@ export function AuditPage() {
   return (
     <div>
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">审计日志</h2>
+        <h2 className="text-lg font-semibold text-slate-900 ">审计日志</h2>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <input
-            className="input"
+          <Input
             placeholder="按代理登录名过滤"
             value={proxyUser}
             onChange={(e) => setProxyUser(e.target.value)}
           />
-          <input
-            className="input"
+          <Input
             placeholder="按目标服务器过滤"
             value={targetHost}
             onChange={(e) => setTargetHost(e.target.value)}
           />
-          <input
-            className="input"
+          <Input
             placeholder="按客户端凭据过滤"
             value={clientCredentialLabel}
             onChange={(e) => setClientCredentialLabel(e.target.value)}
           />
-          <button
-            onClick={refresh}
-            disabled={refreshing}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
+          <Button onClick={refresh} disabled={refreshing}>
             {refreshing ? "刷新中..." : "刷新"}
-          </button>
+          </Button>
         </div>
       </div>
 
-      <div className="space-y-2">
-        {logs.map((l) => (
-          <div key={l.id} className="rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
-            <div
-              className="flex cursor-pointer flex-wrap items-center gap-3 text-slate-700 dark:text-slate-300"
-              onClick={() => setExpanded(expanded === l.id ? null : l.id)}
-            >
-              <span className="text-xs text-slate-400">{new Date(l.ts).toLocaleString()}</span>
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs dark:bg-slate-800">{l.proxy_user}</span>
-              {l.client_credential_label && (
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800">
-                  {l.client_credential_label}
-                </span>
-              )}
-              <span className="font-mono text-xs text-slate-500">
-                → {l.target_host}:{l.target_port}
-              </span>
-              <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-xs text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
-                {l.event_type}
-              </span>
-              <span className="text-xs text-slate-400">来自 {l.remote_addr}</span>
-              {l.status === "running" ? (
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                  运行中
-                </span>
-              ) : l.exit_status !== null ? (
-                <span className={`text-xs ${l.exit_status === 0 ? "text-emerald-500" : "text-red-500"}`}>
-                  exit={l.exit_status}
-                </span>
+      <Typography.Paragraph type="secondary">
+        显示最近 200 条匹配记录，每 5 秒自动刷新。展开记录查看命令和输出。
+      </Typography.Paragraph>
+      <Table<AuditLog>
+        rowKey="id"
+        size="middle"
+        dataSource={logs}
+        scroll={{ x: 1200 }}
+        pagination={{
+          defaultPageSize: 20,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`,
+        }}
+        columns={[
+          {
+            title: "时间",
+            dataIndex: "ts",
+            width: 195,
+            render: (v) => new Date(v).toLocaleString(),
+          },
+          { title: "代理登录名", dataIndex: "proxy_user", width: 180 },
+          {
+            title: "客户端凭据",
+            dataIndex: "client_credential_label",
+            width: 170,
+            render: (v) => v || "—",
+          },
+          {
+            title: "目标",
+            width: 210,
+            render: (_, l) => `${l.target_host}:${l.target_port}`,
+          },
+          { title: "来源", dataIndex: "remote_addr", width: 180 },
+          {
+            title: "类型",
+            dataIndex: "event_type",
+            width: 100,
+            render: (v) => <Tag color="blue">{v}</Tag>,
+          },
+          {
+            title: "结果",
+            width: 165,
+            render: (_, l) => (
+              <Tag
+                color={
+                  l.status === "running"
+                    ? "processing"
+                    : l.exit_status === 0
+                      ? "success"
+                      : "error"
+                }
+              >
+                {l.status === "running"
+                  ? "运行中"
+                  : l.exit_status === null
+                    ? "未收到退出码"
+                    : `退出码 ${l.exit_status}`}
+              </Tag>
+            ),
+          },
+        ]}
+        expandable={{
+          expandedRowRender: (l) => (
+            <div className="audit-detail">
+              {l.event_type === "exec" ? (
+                <>
+                  <Typography.Text strong>命令</Typography.Text>
+                  <pre>{l.command || "（空）"}</pre>
+                  <Typography.Text strong>输出</Typography.Text>
+                  <pre>
+                    {l.output || "（无输出内容）"}
+                    {l.truncated && "\n…（已截断）"}
+                  </pre>
+                </>
               ) : (
-                <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700 dark:bg-red-900/40 dark:text-red-300">
-                  未收到退出码(可能连接中断)
-                </span>
+                <pre>
+                  {l.detail || "（无输出内容）"}
+                  {l.truncated && "\n…（已截断）"}
+                </pre>
               )}
             </div>
-            {expanded === l.id && (
-              <div className="mt-2 space-y-2">
-                {l.event_type === "exec" ? (
-                  <>
-                    <div>
-                      <div className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">命令</div>
-                      <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                        {l.command || "(空)"}
-                      </pre>
-                    </div>
-                    <div>
-                      <div className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">输出</div>
-                      <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                        {l.output || "(无输出内容)"}
-                        {l.truncated && "\n... (已截断)"}
-                      </pre>
-                    </div>
-                  </>
-                ) : (
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                    {l.detail || "(无输出内容)"}
-                    {l.truncated && "\n... (已截断)"}
-                  </pre>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-        {logs.length === 0 && <p className="py-8 text-center text-slate-400">暂无审计记录</p>}
-      </div>
+          ),
+        }}
+      />
     </div>
   );
 }

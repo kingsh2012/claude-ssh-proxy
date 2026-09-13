@@ -25,7 +25,7 @@ func loadOrCreateHostKey(path string) (ssh.Signer, error) {
 		return nil, fmt.Errorf("生成 host key 失败: %w", err)
 	}
 
-	block, err := ssh.MarshalPrivateKey(priv, "claude-ssh-proxy host key")
+	block, err := ssh.MarshalPrivateKey(priv, "ops-ssh-proxy host key")
 	if err != nil {
 		return nil, fmt.Errorf("序列化 host key 失败: %w", err)
 	}

@@ -12,7 +12,7 @@ import (
 var version = "dev"
 
 func main() {
-	dbPath := flag.String("db", "claude-ssh-proxy.db", "SQLite 数据库文件路径")
+	dbPath := flag.String("db", "ops-ssh-proxy.db", "SQLite 数据库文件路径")
 	hostKeyPath := flag.String("host-key", "host_key", "proxy 自身 SSH host key 文件路径")
 	webAddr := flag.String("web-addr", envOrDefault("WEB_LISTEN_ADDR", "127.0.0.1:8080"), "Web 管理后台监听地址")
 	sshAddr := flag.String("ssh-addr", os.Getenv("SSH_LISTEN_ADDR"), "覆盖并保存 SSH 代理监听地址(留空时使用数据库配置,首次默认 :2222)")
@@ -26,7 +26,18 @@ func main() {
 		os.Exit(0)
 	}
 
-	log.Printf("claude-ssh-proxy %s 启动中...", version)
+	if *dbPath == "ops-ssh-proxy.db" {
+		explicitDB := false
+		flag.Visit(func(f *flag.Flag) {
+			if f.Name == "db" {
+				explicitDB = true
+			}
+		})
+		if _, err := os.Stat("claude-ssh-proxy.db"); err == nil && !explicitDB {
+			log.Fatal("检测到旧数据库，请显式传入 -db claude-ssh-proxy.db，避免更名后创建空数据库")
+		}
+	}
+	log.Printf("ops-ssh-proxy %s 启动中...", version)
 
 	store, err := OpenStore(*dbPath)
 	if err != nil {
@@ -46,14 +57,14 @@ func main() {
 
 	proxy, err := NewProxy(store, *hostKeyPath)
 	if err != nil {
-		log.Fatalf("初始化 claude-ssh-proxy 失败: %v", err)
+		log.Fatalf("初始化 ops-ssh-proxy 失败: %v", err)
 	}
 	listenAddr := store.GetSetting("listen_addr", ":2222")
 	if *sshAddr != "" {
 		listenAddr = *sshAddr
 	}
 	if err := proxy.Start(listenAddr); err != nil {
-		log.Fatalf("启动 claude-ssh-proxy 失败: %v", err)
+		log.Fatalf("启动 ops-ssh-proxy 失败: %v", err)
 	}
 	if *sshAddr != "" {
 		if err := store.SetSetting("listen_addr", listenAddr); err != nil {
@@ -64,6 +75,7 @@ func main() {
 	api := NewAPI(store, proxy)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", api.Router())
+	mux.HandleFunc("GET /agent", proxy.agents.ServeHTTP)
 	mux.Handle("/", webUIHandler())
 
 	log.Printf("Web 管理后台正在监听 %s", *webAddr)

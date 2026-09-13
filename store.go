@@ -340,7 +340,14 @@ func (s *Store) migrate() error {
 	if err := s.ensureColumn("servers", "port_max", "INTEGER NOT NULL DEFAULT 65535"); err != nil {
 		return err
 	}
-	return nil
+	if err := s.ensureColumn("servers", "connection_type", "TEXT NOT NULL DEFAULT 'ssh'"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("servers", "agent_token_hash", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+
+	return s.migrateEnrollments()
 }
 
 func (s *Store) migratePlaintextSecrets() error {
@@ -508,13 +515,16 @@ func (s *Store) SetAdminPassword(username, password string) error {
 // ---------- servers ----------
 
 type ServerRecord struct {
-	ID         int64  `json:"id"`
-	ProxyUser  string `json:"proxy_user"`
-	TargetHost string `json:"target_host"`
-	TargetPort int    `json:"target_port"`
-	RouteMode  string `json:"route_mode"` // fixed | dynamic_port
-	PortMin    int    `json:"port_min"`
-	PortMax    int    `json:"port_max"`
+	ConnectionType string `json:"connection_type"`
+	AgentTokenHash string `json:"-"`
+	AgentOnline    bool   `json:"agent_online"`
+	ID             int64  `json:"id"`
+	ProxyUser      string `json:"proxy_user"`
+	TargetHost     string `json:"target_host"`
+	TargetPort     int    `json:"target_port"`
+	RouteMode      string `json:"route_mode"` // fixed | dynamic_port
+	PortMin        int    `json:"port_min"`
+	PortMax        int    `json:"port_max"`
 
 	// 下面这些认证相关字段都是只读的,完全来自关联的"服务器凭据"(见 ServerCredentialID),
 	// 不能通过 UpsertServer 直接设置;服务器本身不再存密码/私钥/目标用户名。
@@ -549,7 +559,7 @@ type ServerRecord struct {
 }
 
 const serverSelectColumns = `id, proxy_user, target_host, target_port, route_mode, port_min, port_max, enabled, legacy_algorithms, host_key_fingerprint,
-	last_test_at, last_test_ok, last_test_error, server_credential_id`
+	last_test_at, last_test_ok, last_test_error, server_credential_id, connection_type, agent_token_hash`
 
 func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
 	var r ServerRecord
@@ -559,7 +569,7 @@ func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
 	var testAt sql.NullTime
 	var testOK sql.NullInt64
 	var credID sql.NullInt64
-	if err := scan(&r.ID, &r.ProxyUser, &r.TargetHost, &r.TargetPort, &r.RouteMode, &r.PortMin, &r.PortMax, &enabled, &legacyAlgorithms, &r.HostKeyFingerprint, &testAt, &testOK, &testErr, &credID); err != nil {
+	if err := scan(&r.ID, &r.ProxyUser, &r.TargetHost, &r.TargetPort, &r.RouteMode, &r.PortMin, &r.PortMax, &enabled, &legacyAlgorithms, &r.HostKeyFingerprint, &testAt, &testOK, &testErr, &credID, &r.ConnectionType, &r.AgentTokenHash); err != nil {
 		return r, err
 	}
 	r.Enabled = enabled != 0
@@ -582,7 +592,7 @@ func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
 // 填进 ServerRecord 的只读字段,供拨号连接和 Web API 展示使用。没关联凭据时这些字段留空,
 // 服务器处于"暂不可连接"的状态,需要去编辑指定一个凭据。
 func (s *Store) resolveServerCredential(r *ServerRecord) error {
-	if r.ServerCredentialID == nil {
+	if r.ConnectionType == "agent" || r.ServerCredentialID == nil {
 		return nil
 	}
 	var label, targetUser, authType string
@@ -734,6 +744,17 @@ func (s *Store) listClientCredentialLabelsForServer(serverID int64) ([]string, e
 // enabled 不在这里改:新建时用表的 DEFAULT 1,编辑已有服务器时保留原值,
 // 是否启用由 SetServerEnabled 单独控制,避免保存其他字段时不小心把开关状态带跑偏。
 func (s *Store) UpsertServer(r ServerRecord) error {
+	if r.ConnectionType == "" {
+		r.ConnectionType = "ssh"
+	}
+	if r.ConnectionType != "ssh" && r.ConnectionType != "agent" {
+		return fmt.Errorf("未知接入类型")
+	}
+	if r.ConnectionType == "agent" {
+		r.RouteMode = "fixed"
+		r.ServerCredentialID = nil
+		r.TargetPort = 0
+	}
 	if r.RouteMode == "" {
 		r.RouteMode = "fixed"
 	}
@@ -750,14 +771,14 @@ func (s *Store) UpsertServer(r ServerRecord) error {
 
 	var err error
 	if r.ID == 0 {
-		_, err = s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, route_mode, port_min, port_max, server_credential_id, legacy_algorithms, host_key_fingerprint, updated_at)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-			r.ProxyUser, r.TargetHost, r.TargetPort, r.RouteMode, r.PortMin, r.PortMax, credentialID, boolToInt(r.LegacyAlgorithms), r.HostKeyFingerprint)
+		_, err = s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, route_mode, port_min, port_max, server_credential_id, legacy_algorithms, host_key_fingerprint, connection_type, updated_at)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+			r.ProxyUser, r.TargetHost, r.TargetPort, r.RouteMode, r.PortMin, r.PortMax, credentialID, boolToInt(r.LegacyAlgorithms), r.HostKeyFingerprint, r.ConnectionType)
 	} else {
 		var res sql.Result
 		res, err = s.db.Exec(`UPDATE servers SET proxy_user = ?, target_host = ?, target_port = ?, route_mode = ?, port_min = ?, port_max = ?,
-			server_credential_id = ?, legacy_algorithms = ?, host_key_fingerprint = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-			r.ProxyUser, r.TargetHost, r.TargetPort, r.RouteMode, r.PortMin, r.PortMax, credentialID, boolToInt(r.LegacyAlgorithms), r.HostKeyFingerprint, r.ID)
+			server_credential_id = ?, legacy_algorithms = ?, host_key_fingerprint = ?, connection_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			r.ProxyUser, r.TargetHost, r.TargetPort, r.RouteMode, r.PortMin, r.PortMax, credentialID, boolToInt(r.LegacyAlgorithms), r.HostKeyFingerprint, r.ConnectionType, r.ID)
 		if err == nil {
 			if n, _ := res.RowsAffected(); n == 0 {
 				return fmt.Errorf("服务器(id=%d)不存在", r.ID)

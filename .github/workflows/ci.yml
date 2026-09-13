@@ -36,4 +36,26 @@ jobs:
         run: go build -o /dev/null .
 
       - name: Test
-        run: go test ./...
+        run: go test -race -timeout 120s ./...
+
+  windows-agent:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build frontend
+        working-directory: webui
+        run: |
+          npm ci
+          npm run build
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test Windows Agent and SSH integration
+        run: go test -timeout 120s ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build Windows Agent
+        run: go build -trimpath -o dist/ops-ssh-agent.exe ./cmd/windows-agent

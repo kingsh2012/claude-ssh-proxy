@@ -40,10 +40,14 @@ func (a *API) Router() http.Handler {
 	mux.HandleFunc("GET /api/me", a.auth(a.handleMe))
 	mux.HandleFunc("PUT /api/admin/password", a.auth(a.handleChangePassword))
 
+	mux.HandleFunc("GET /api/agent-enrollments", a.auth(a.handleListEnrollments))
+	mux.HandleFunc("POST /api/agent-enrollments", a.auth(a.handleCreateEnrollment))
+	mux.HandleFunc("POST /api/agent-enrollments/{id}/revoke", a.auth(a.handleRevokeEnrollment))
 	mux.HandleFunc("GET /api/servers", a.auth(a.handleListServers))
 	mux.HandleFunc("POST /api/servers", a.auth(a.handleUpsertServer))
 	mux.HandleFunc("DELETE /api/servers/{user}", a.auth(a.handleDeleteServer))
 	mux.HandleFunc("POST /api/servers/test-all", a.auth(a.handleTestAllServers))
+	mux.HandleFunc("POST /api/servers/{user}/agent-token", a.auth(a.handleRotateAgentToken))
 	mux.HandleFunc("POST /api/servers/{user}/test", a.auth(a.handleTestServer))
 	mux.HandleFunc("PUT /api/servers/{user}/enabled", a.auth(a.handleSetServerEnabled))
 
@@ -57,6 +61,9 @@ func (a *API) Router() http.Handler {
 	mux.HandleFunc("PUT /api/client-credentials/{id}", a.auth(a.handleUpdateClientCredential))
 	mux.HandleFunc("DELETE /api/client-credentials/{id}", a.auth(a.handleDeleteClientCredential))
 
+	mux.HandleFunc("GET /api/settings/agent-registration", a.auth(a.handleGetSelfRegistration))
+	mux.HandleFunc("PUT /api/settings/agent-registration", a.auth(a.handlePutSelfRegistration))
+	mux.HandleFunc("DELETE /api/settings/agent-registration", a.auth(a.handleDisableSelfRegistration))
 	mux.HandleFunc("GET /api/settings", a.auth(a.handleGetSettings))
 	mux.HandleFunc("PUT /api/settings", a.auth(a.handleUpdateSettings))
 
@@ -203,6 +210,7 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i := range servers {
+		servers[i].AgentOnline = a.proxy.agents.Online(servers[i].ID)
 		servers[i].AuthPassword = ""
 		servers[i].AuthPrivateKey = ""
 		servers[i].AuthPrivateKeyPassphrase = ""
@@ -214,6 +222,23 @@ func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 	var server ServerRecord
 	if !decodeJSON(w, r, &server) {
 		return
+	}
+	if server.ConnectionType == "" {
+		server.ConnectionType = "ssh"
+	}
+	if server.ConnectionType != "ssh" && server.ConnectionType != "agent" {
+		writeError(w, 400, "未知接入类型")
+		return
+	}
+	if server.ConnectionType == "agent" {
+		if server.RouteMode != "" && server.RouteMode != "fixed" {
+			writeError(w, 400, "Agent 仅支持固定登录名")
+			return
+		}
+		server.TargetHost = "Windows Agent"
+		server.ServerCredentialID = nil
+		server.LegacyAlgorithms = false
+		server.HostKeyFingerprint = ""
 	}
 	if server.ProxyUser == "" || server.TargetHost == "" {
 		writeError(w, http.StatusBadRequest, "proxy_user / target_host 不能为空")
@@ -267,14 +292,19 @@ func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	a.proxy.agents.Disconnect(server.ID)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	user := r.PathValue("user")
+	previous, _ := a.store.GetServer(user)
 	if err := a.store.DeleteServer(user); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if previous != nil {
+		a.proxy.agents.Disconnect(previous.ID)
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
@@ -296,6 +326,10 @@ func (a *API) handleSetServerEnabled(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if !updated.Enabled {
+		a.proxy.agents.Disconnect(updated.ID)
+	}
+	updated.AgentOnline = a.proxy.agents.Online(updated.ID)
 	updated.AuthPassword, updated.AuthPrivateKey, updated.AuthPrivateKeyPassphrase = "", "", ""
 	writeJSON(w, updated)
 }
@@ -309,7 +343,14 @@ func (a *API) runServerTest(proxyUser string) (*ServerRecord, error) {
 	if server.RouteMode == "dynamic_port" {
 		return nil, fmt.Errorf("动态端口规则没有固定目标端口,请使用实际代理登录名连接测试")
 	}
-	testErr := TestServer(*server)
+	var testErr error
+	if server.ConnectionType == "agent" {
+		if !server.Enabled || !a.proxy.agents.Online(server.ID) {
+			testErr = fmt.Errorf("Agent 未连接或已禁用")
+		}
+	} else {
+		testErr = TestServer(*server)
+	}
 	msg := ""
 	if testErr != nil {
 		msg = testErr.Error()
@@ -321,6 +362,10 @@ func (a *API) runServerTest(proxyUser string) (*ServerRecord, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !updated.Enabled {
+		a.proxy.agents.Disconnect(updated.ID)
+	}
+	updated.AgentOnline = a.proxy.agents.Online(updated.ID)
 	updated.AuthPassword, updated.AuthPrivateKey, updated.AuthPrivateKeyPassphrase = "", "", ""
 	return updated, nil
 }
@@ -362,6 +407,7 @@ func (a *API) handleTestAllServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i := range updated {
+		updated[i].AgentOnline = a.proxy.agents.Online(updated[i].ID)
 		updated[i].AuthPassword, updated[i].AuthPrivateKey, updated[i].AuthPrivateKeyPassphrase = "", "", ""
 	}
 	writeJSON(w, updated)

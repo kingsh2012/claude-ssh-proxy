@@ -1,68 +1,78 @@
-import { useEffect, useState } from "react";
+import { App, Badge, Button, Table } from "antd";
+import { useCallback, useEffect, useState } from "react";
 import { api, type ActiveConnection } from "./api";
 
 export function ConnectionsPage() {
+  const { message } = App.useApp();
   const [connections, setConnections] = useState<ActiveConnection[]>([]);
   const [now, setNow] = useState(Date.now());
 
-  async function load() {
-    setConnections((await api.listConnections()) ?? []);
-    setNow(Date.now());
-  }
+  const load = useCallback(async () => {
+    try {
+      setConnections((await api.listConnections()) ?? []);
+      setNow(Date.now());
+    } catch {
+      void message.error({ content: "读取连接失败", key: "connections-load" });
+    }
+  }, [message]);
 
   useEffect(() => {
     load();
     const timer = setInterval(load, 3000);
     return () => clearInterval(timer);
-  }, []);
+  }, [load]);
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">当前连接</h2>
-        <button
-          onClick={load}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-        >
-          刷新
-        </button>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-900 ">当前连接</h2>
+        <Button onClick={load}>刷新</Button>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
-            <tr>
-              <th className="px-4 py-2">代理名称</th>
-              <th className="px-4 py-2">客户端凭据</th>
-              <th className="px-4 py-2">来源</th>
-              <th className="px-4 py-2">目标服务器</th>
-              <th className="px-4 py-2">连接时间</th>
-              <th className="px-4 py-2">持续时间</th>
-              <th className="px-4 py-2">会话数</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {connections.map((connection) => (
-              <tr key={connection.id} className="text-slate-800 dark:text-slate-200">
-                <td className="px-4 py-2 font-mono">{connection.proxy_user}</td>
-                <td className="px-4 py-2">{connection.client_credential_label || "-"}</td>
-                <td className="px-4 py-2 font-mono text-xs">{connection.remote_addr}</td>
-                <td className="px-4 py-2 font-mono text-xs">
-                  {connection.target_user}@{connection.target_host}:{connection.target_port}
-                </td>
-                <td className="px-4 py-2 whitespace-nowrap">{new Date(connection.connected_at).toLocaleString()}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{formatDuration(now - new Date(connection.connected_at).getTime())}</td>
-                <td className="px-4 py-2 text-center">{connection.active_sessions}</td>
-              </tr>
-            ))}
-            {connections.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-400">当前没有 SSH 连接</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <p className="mb-4 text-slate-500">
+        每 3 秒自动刷新，当前 {connections.length} 条 SSH 连接。
+      </p>
+      <Table<ActiveConnection>
+        rowKey="id"
+        size="middle"
+        dataSource={connections}
+        scroll={{ x: 1150 }}
+        pagination={{ defaultPageSize: 20, showSizeChanger: true }}
+        columns={[
+          { title: "代理登录名", dataIndex: "proxy_user", width: 180 },
+          {
+            title: "客户端凭据",
+            dataIndex: "client_credential_label",
+            width: 180,
+            render: (v) => v || "—",
+          },
+          { title: "来源", dataIndex: "remote_addr", width: 190 },
+          {
+            title: "目标服务器",
+            width: 240,
+            render: (_, c) =>
+              `${c.target_user}@${c.target_host}:${c.target_port}`,
+          },
+          {
+            title: "连接时间",
+            width: 200,
+            render: (_, c) => new Date(c.connected_at).toLocaleString(),
+          },
+          {
+            title: "持续时间",
+            width: 120,
+            render: (_, c) =>
+              formatDuration(now - new Date(c.connected_at).getTime()),
+          },
+          {
+            title: "会话数",
+            width: 90,
+            render: (_, c) => (
+              <Badge count={c.active_sessions} showZero color="#1677ff" />
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }
@@ -72,5 +82,7 @@ function formatDuration(milliseconds: number) {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const rest = seconds % 60;
-  return [hours, minutes, rest].map((value) => String(value).padStart(2, "0")).join(":");
+  return [hours, minutes, rest]
+    .map((value) => String(value).padStart(2, "0"))
+    .join(":");
 }

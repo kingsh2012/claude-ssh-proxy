@@ -15,6 +15,7 @@ import (
 )
 
 type Proxy struct {
+	agents     *AgentHub
 	store      *Store
 	hostSigner ssh.Signer
 
@@ -44,7 +45,7 @@ func NewProxy(store *Store, hostKeyPath string) (*Proxy, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Proxy{store: store, hostSigner: signer, connections: make(map[uint64]*ActiveConnection)}, nil
+	return &Proxy{agents: NewAgentHub(store), store: store, hostSigner: signer, connections: make(map[uint64]*ActiveConnection)}, nil
 }
 
 // Start 在指定地址上监听并开始接受连接(非阻塞,内部起 goroutine 处理 accept 循环)。
@@ -73,7 +74,7 @@ func (p *Proxy) activateListener(ln net.Listener, addr string) {
 	p.listener = ln
 	p.listenAddr = addr
 
-	log.Printf("claude-ssh-proxy 正在监听 %s", addr)
+	log.Printf("ops-ssh-proxy 正在监听 %s", addr)
 
 	go func() {
 		for {
@@ -219,13 +220,18 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 	proxyUser := sconn.Permissions.Extensions["server-user"]
 	clientCredentialLabel := sconn.Permissions.Extensions["client-credential-label"]
 	server, err := p.store.ResolveServer(proxyUser)
-	if err != nil {
+	if err != nil || !server.Enabled {
 		log.Printf("[%s] 服务器 %q 不存在", remoteAddr, proxyUser)
 		return
 	}
 
 	log.Printf("[%s] 用户 %q 认证通过,路由到 %s@%s:%d",
 		remoteAddr, proxyUser, server.TargetUser, server.TargetHost, server.TargetPort)
+
+	if server.ConnectionType == "agent" {
+		p.handleAgentSSH(sconn, chans, reqs, *server, remoteAddr, clientCredentialLabel)
+		return
+	}
 
 	client, err := dialUpstream(*server)
 	if err != nil {

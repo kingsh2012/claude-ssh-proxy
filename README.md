@@ -1,6 +1,6 @@
-# claude-ssh-proxy
+# ops-ssh-proxy
 
-一个给 AI Agent(如 Claude)使用的 SSH 反向代理:Agent 用一个代理登录名连接到 proxy,proxy 校验身份后自动路由、连接到真正的目标机器,并把 Agent 在会话里执行的操作记录成审计日志。同时内置一个 React + Tailwind 的 Web 管理后台,用来维护路由、监听地址和查看审计记录。
+一个给 AI Agent(如 Claude)使用的 SSH 反向代理:Agent 用一个代理登录名连接到 proxy,proxy 校验身份后自动路由、连接到真正的目标机器,并把 Agent 在会话里执行的操作记录成审计日志。同时内置一个 React + Ant Design 的 Web 管理后台,用来维护路由、监听地址和查看审计记录。
 
 ## 解决什么问题
 
@@ -10,7 +10,7 @@
 - 密码认证还要靠 `sshpass`,密码容易明文出现在进程列表、日志、对话上下文里
 - 没有集中的操作审计,不知道 Agent 具体执行了什么命令
 
-`claude-ssh-proxy` 把这些收敛到一层:
+`ops-ssh-proxy` 把这些收敛到一层:
 
 - Agent 只需要知道一个"代理登录名"(比如 `abc`),不需要知道真实的目标 IP、账号、密码/私钥
 - 代理登录名到目标机器的映射、目标机器的认证信息,统一在 Web 后台配置和保管
@@ -32,6 +32,16 @@ Claude ───────────────────▶ proxy ──
 - 每台服务器可以单独启用/禁用;禁用后不管客户端凭据对不对,一律拒绝这个代理登录名登录,不用删掉配置就能临时"拔网线"
 - 所有配置(路由、服务器凭据、客户端凭据、管理员账号、审计日志)存在 SQLite 数据库里,服务器密码/私钥使用独立密钥加密保存;改配置即时生效,不需要重启 SSH 监听(除非改的是监听地址本身)
 
+## Windows 主动接入
+
+Windows 无法安装 OpenSSH 或不开放入站端口时，可运行单文件 `ops-ssh-agent.exe` 主动连接本代理。LLM 仍使用原来的 SSH 登录名执行 PowerShell、读取日志；认证、后台和审计继续复用。
+
+- 在后台“服务设置”生成统一的自注册 Token，首次设置连接地址和默认客户端凭据，多台 Windows 共用。
+- Windows 执行 `ops-ssh-agent.exe -token '自注册Token' [-hostname '代理登录名']`，按本机主机名自动注册，无需预建服务器、填写 ID 或配置文件。
+- Agent 通过 WSS 连接 `/agent`；不需要 NATS。
+- 首版支持非交互命令，每台设备一个任务，最长 5 分钟；暂不支持 SFTP、PTY、stdin 和端口转发。
+- 项目现名为 `ops-ssh-proxy`，Windows 客户端为 `ops-ssh-agent.exe`。编译、HTTPS 配置、启动与文件读取示例见 [Windows Agent 接入说明](docs/20260911-windows-agent.md)。
+
 ## 快速开始
 
 ### 1. 编译
@@ -43,20 +53,20 @@ cd webui
 npm install
 npm run build   # 产出 webui/dist,会被 go:embed 打进最终二进制
 cd ..
-go build -o claude-ssh-proxy .
+go build -o ops-ssh-proxy .
 ```
 
 ### 2. 启动
 
 ```bash
-./claude-ssh-proxy
+./ops-ssh-proxy
 ```
 
 默认:
 - SSH 监听 `:2222`
 - Web 管理后台监听 `127.0.0.1:8080`
-- 数据库文件 `claude-ssh-proxy.db`(当前目录)
-- 凭据加密密钥 `claude-ssh-proxy.db.key`(自动生成,权限为 `0600`)
+- 数据库文件 `ops-ssh-proxy.db`(当前目录)
+- 凭据加密密钥 `ops-ssh-proxy.db.key`(自动生成,权限为 `0600`)
 
 首次启动会自动创建一个管理员账号,固定是 `admin` / `admin`:
 
@@ -140,8 +150,8 @@ Agent 之后执行的每条命令、每个交互式 shell 会话,都会被记录
 ## 常用参数
 
 ```
-./claude-ssh-proxy \
-  -db claude-ssh-proxy.db \        # SQLite 数据库路径
+./ops-ssh-proxy \
+  -db ops-ssh-proxy.db \        # SQLite 数据库路径
   -host-key host_key \             # proxy 自身 SSH host key 文件(不存在会自动生成)
   -ssh-addr :2223 \                # 覆盖并保存 SSH 监听地址(留空时使用数据库配置)
   -web-addr 127.0.0.1:8080 \       # Web 管理后台监听地址
@@ -149,7 +159,7 @@ Agent 之后执行的每条命令、每个交互式 shell 会话,都会被记录
   -bootstrap-admin-password admin  # 首次启动自动创建的管理员初始密码(登录后强制要求修改)
 ```
 
-SSH 监听地址会保存在数据库里,首次启动默认 `:2222`;通过 `-ssh-addr` 指定地址时会覆盖并保存到数据库,之后可在 Web 后台"监听设置"页面修改。未传 `-ssh-addr` 时以数据库配置为准。新地址会先实际绑定再切换;地址重叠时若切换失败会尝试恢复旧监听。
+SSH 监听地址会保存在数据库里,首次启动默认 `:2222`;通过 `-ssh-addr` 指定地址时会覆盖并保存到数据库,之后可在 Web 后台"服务设置"页面修改。未传 `-ssh-addr` 时以数据库配置为准。新地址会先实际绑定再切换;地址重叠时若切换失败会尝试恢复旧监听。
 
 ## 用 systemd 常驻运行
 
@@ -157,21 +167,21 @@ Release 压缩包自带一键安装脚本。下载后解压并以 root 执行:
 
 ```bash
 cd /root
-tar xzf claude-ssh-proxy-linux-amd64.tar.gz
-cd claude-ssh-proxy-linux-amd64
+tar xzf ops-ssh-proxy-linux-amd64.tar.gz
+cd ops-ssh-proxy-linux-amd64
 ./install.sh --ssh-addr :2223
 ```
 
 如果本机的 `2222` 已被其他程序占用,用 `--ssh-addr` 选择空闲端口。还可以同时指定 Web 监听地址,例如 `./install.sh --ssh-addr :2223 --web-addr 127.0.0.1:8080`。`--ssh-addr` 会覆盖数据库中的旧监听地址,因此也能恢复因旧端口被占用而无法启动的安装。服务启动成功后该一次性覆盖会自动清除,后续以网页保存的配置为准;重复安装但不传选项时不会改变 SSH 监听。
 
-安装脚本会把程序、数据库、凭据加密密钥和 host key 放在 `/data/claude-ssh-proxy`,安装 systemd 服务并以 root 用户启动。重复执行可用于升级,已有数据不会被覆盖;升级前会把数据库、`.key` 和 host key 备份到 `/data/claude-ssh-proxy/backups/<时间>/`,新服务启动失败时会自动恢复上一版程序和 unit。若检测到旧版 `/var/lib/claude-ssh-proxy` 数据且新目录还没有数据库,脚本会在停止服务后复制旧数据,同时保留旧目录用于回退。
+安装脚本会把程序、数据库、凭据加密密钥和 host key 放在 `/data/ops-ssh-proxy`,安装 systemd 服务并以 root 用户启动。重复执行可用于升级,已有数据不会被覆盖;升级前会把数据库、`.key` 和 host key 备份到 `/data/ops-ssh-proxy/backups/<时间>/`,新服务启动失败时会自动恢复上一版程序和 unit。若检测到旧版 `/var/lib/ops-ssh-proxy` 数据且新目录还没有数据库,脚本会在停止服务后复制旧数据,同时保留旧目录用于回退。 检测到 `claude-ssh-proxy` 旧服务或旧数据目录时，安装脚本会停止安装，避免创建空库；请按 [更名迁移说明](docs/20260911-windows-agent.md#项目更名与迁移2026-09-14) 处理。
 
 常用管理命令:
 
 ```bash
-systemctl status claude-ssh-proxy
-systemctl restart claude-ssh-proxy
-journalctl -u claude-ssh-proxy -f
+systemctl status ops-ssh-proxy
+systemctl restart ops-ssh-proxy
+journalctl -u ops-ssh-proxy -f
 ```
 
 Nginx 反向代理至少应传入原始协议,让登录 Cookie 在 HTTPS 下自动带上 `Secure`:

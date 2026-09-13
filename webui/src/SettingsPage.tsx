@@ -1,5 +1,7 @@
+import { Card, Input, Button } from "antd";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
+import { SelfRegistrationSettings } from "./SelfRegistrationSettings";
 
 export function SettingsPage() {
   const [listenAddr, setListenAddr] = useState("");
@@ -11,7 +13,10 @@ export function SettingsPage() {
   const [pwMsg, setPwMsg] = useState("");
 
   useEffect(() => {
-    api.getSettings().then((s) => setListenAddr(s.listen_addr));
+    api
+      .getSettings()
+      .then((s) => setListenAddr(s.listen_addr))
+      .catch(() => setError("读取监听设置失败，请刷新重试"));
   }, []);
 
   async function saveListenAddr() {
@@ -40,48 +45,55 @@ export function SettingsPage() {
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">设置</h2>
+        <h2 className="text-lg font-semibold text-slate-900 ">服务设置</h2>
       </div>
 
-      <div className="max-w-lg space-y-8">
-        <section>
-          <h3 className="mb-3 text-base font-semibold text-slate-900 dark:text-slate-100">SSH 监听地址</h3>
-          <p className="mb-2 text-sm text-slate-500 dark:text-slate-400">
-            修改后 proxy 会立刻重新监听新地址,已有连接不受影响,断线重连的客户端走新地址。
+      <div className="settings-grid">
+        <Card>
+          <h3 className="mb-3 text-base font-semibold text-slate-900 ">
+            SSH 监听地址
+          </h3>
+          <p className="mb-2 text-sm text-slate-500 ">
+            修改后 proxy
+            会立刻重新监听新地址,已有连接不受影响,断线重连的客户端走新地址。
           </p>
-          <div className="space-y-2">
-            <input className="input" value={listenAddr} onChange={(e) => setListenAddr(e.target.value)} placeholder=":2222" />
-            <button onClick={saveListenAddr} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+          <div className="settings-fields">
+            <Input
+              value={listenAddr}
+              onChange={(e) => setListenAddr(e.target.value)}
+              placeholder=":2222"
+            />
+            <Button type="primary" onClick={saveListenAddr}>
               保存
-            </button>
-            {saved && <p className="text-sm text-emerald-600 dark:text-emerald-400">已生效</p>}
-            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+            </Button>
+            {saved && <p className="text-sm text-emerald-600 ">已生效</p>}
+            {error && <p className="text-sm text-red-600 ">{error}</p>}
           </div>
-        </section>
+        </Card>
 
-        <section>
-          <h3 className="mb-3 text-base font-semibold text-slate-900 dark:text-slate-100">修改管理员密码</h3>
-          <div className="space-y-2">
-            <input
-              type="password"
-              className="input"
+        <SelfRegistrationSettings />
+
+        <Card>
+          <h3 className="mb-3 text-base font-semibold text-slate-900 ">
+            修改管理员密码
+          </h3>
+          <div className="settings-fields">
+            <Input.Password
               placeholder="原密码"
               value={oldPassword}
               onChange={(e) => setOldPassword(e.target.value)}
             />
-            <input
-              type="password"
-              className="input"
+            <Input.Password
               placeholder="新密码(至少 8 位)"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
-            <button onClick={changePassword} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+            <Button type="primary" onClick={changePassword}>
               修改密码
-            </button>
-            {pwMsg && <p className="text-sm text-slate-600 dark:text-slate-400">{pwMsg}</p>}
+            </Button>
+            {pwMsg && <p className="text-sm text-slate-600 ">{pwMsg}</p>}
           </div>
-        </section>
+        </Card>
       </div>
     </div>
   );

@@ -1,3 +1,5 @@
+import { Grid, Button, Input, Modal, Table, Tag } from "antd";
+import { useFeedback } from "./useFeedback";
 import { useEffect, useState } from "react";
 import { api, ApiError, type ClientCredential, type ServerRecord } from "./api";
 import { ChipList } from "./ChipList";
@@ -19,22 +21,31 @@ function extractLabelFromPublicKey(publicKey: string): string {
 }
 
 export function ClientCredentialsPage() {
+  const screens = Grid.useBreakpoint();
+  const { confirm } = useFeedback();
   const [creds, setCreds] = useState<ClientCredential[]>([]);
   const [servers, setServers] = useState<ServerRecord[]>([]);
   const [editing, setEditing] = useState<
-    (Omit<ClientCredential, "id" | "has_password"> & { id?: number; has_password?: boolean }) | null
+    | (Omit<ClientCredential, "id" | "has_password"> & {
+        id?: number;
+        has_password?: boolean;
+      })
+    | null
   >(null);
   const [labelAuto, setLabelAuto] = useState(true);
   const [error, setError] = useState("");
 
   async function load() {
-    const [c, r] = await Promise.all([api.listClientCredentials(), api.listServers()]);
+    const [c, r] = await Promise.all([
+      api.listClientCredentials(),
+      api.listServers(),
+    ]);
     setCreds(c ?? []);
     setServers(r ?? []);
   }
 
   useEffect(() => {
-    load();
+    load().catch(() => setError("加载失败，请刷新重试"));
   }, []);
 
   function startCreate() {
@@ -45,13 +56,18 @@ export function ClientCredentialsPage() {
 
   function startEdit(c: ClientCredential) {
     setEditing({ ...c, password: "" });
-    setLabelAuto(c.auth_type === "public_key" && c.label === extractLabelFromPublicKey(c.public_key ?? ""));
+    setLabelAuto(
+      c.auth_type === "public_key" &&
+        c.label === extractLabelFromPublicKey(c.public_key ?? ""),
+    );
     setError("");
   }
 
   function onPublicKeyChange(value: string) {
     if (!editing) return;
-    const derived = labelAuto ? extractLabelFromPublicKey(value) : editing.label;
+    const derived = labelAuto
+      ? extractLabelFromPublicKey(value)
+      : editing.label;
     setEditing({ ...editing, public_key: value, label: derived });
   }
 
@@ -89,175 +105,197 @@ export function ClientCredentialsPage() {
   }
 
   async function remove(id: number, label: string) {
-    if (!confirm(`确定删除客户端凭据 "${label}" 吗?删除后所有关联它的服务器都会失去这份凭据的登录权限。`)) return;
-    await api.deleteClientCredential(id);
-    await load();
+    if (
+      !(await confirm(
+        `确定删除客户端凭据 "${label}" 吗?删除后所有关联它的服务器都会失去这份凭据的登录权限。`,
+      ))
+    )
+      return;
+    try {
+      await api.deleteClientCredential(id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "删除失败");
+    }
   }
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">客户端凭据</h2>
-        <button
-          onClick={startCreate}
-          className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-        >
+      {error && !editing && (
+        <p role="alert" className="mb-3 text-red-600">
+          {error}
+        </p>
+      )}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-900 ">客户端凭据</h2>
+        <Button type="primary" onClick={startCreate}>
           + 添加客户端凭据
-        </button>
+        </Button>
       </div>
 
-      <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+      <p className="mb-4 text-sm text-slate-500 ">
         每份凭据代表一个客户端身份,可以绑定多台服务器。
       </p>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
-            <tr>
-              <th className="px-4 py-2">ID</th>
-              <th className="px-4 py-2">名称</th>
-              <th className="px-4 py-2">认证方式</th>
-              <th className="px-4 py-2">绑定的服务器</th>
-              <th className="px-4 py-2"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {creds.map((c) => (
-              <tr key={c.id} className="text-slate-800 dark:text-slate-200">
-                <td className="px-4 py-2 font-mono text-xs text-slate-500">{c.id}</td>
-                <td className="px-4 py-2">{c.label}</td>
-                <td className="px-4 py-2">
-                  {c.auth_type === "public_key" ? (
-                    <span
-                      className="inline-block max-w-[10rem] truncate align-bottom font-mono text-xs"
-                      title={c.public_key}
-                    >
-                      公钥: {c.public_key}
-                    </span>
-                  ) : (
-                    "密码"
-                  )}
-                </td>
-                <td className="px-4 py-2">
-                  <ChipList items={c.proxy_users} emptyText="未关联任何服务器" />
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <button onClick={() => startEdit(c)} className="mr-3 text-indigo-600 hover:underline dark:text-indigo-400">
-                    编辑
-                  </button>
-                  <button onClick={() => remove(c.id, c.label)} className="text-red-600 hover:underline dark:text-red-400">
-                    删除
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {creds.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
-                  还没有添加任何客户端凭据
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <Table<ClientCredential>
+        rowKey="id"
+        size="middle"
+        dataSource={creds}
+        scroll={{ x: 900 }}
+        pagination={{
+          defaultPageSize: 20,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 份`,
+        }}
+        columns={[
+          {
+            title: "名称",
+            dataIndex: "label",
+            width: 220,
+            sorter: (a, b) => a.label.localeCompare(b.label),
+          },
+
+          {
+            title: "认证方式",
+            width: 120,
+            render: (_, c) => (
+              <Tag>{c.auth_type === "password" ? "密码" : "公钥"}</Tag>
+            ),
+          },
+          {
+            title: "绑定的服务器",
+            render: (_, c) => (
+              <ChipList items={c.proxy_users} emptyText="暂无关联" />
+            ),
+          },
+          {
+            title: "操作",
+            width: 150,
+            fixed: screens.md ? "right" : undefined,
+            render: (_, c) => (
+              <div className="row-actions">
+                <Button type="link" onClick={() => startEdit(c)}>
+                  编辑
+                </Button>
+                <Button
+                  type="link"
+                  danger
+                  onClick={() => remove(c.id, c.label)}
+                >
+                  删除
+                </Button>
+              </div>
+            ),
+          },
+        ]}
+      />
 
       {editing && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-slate-950">
-            <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
-              {editing.id != null ? `编辑 ${editing.label}` : "添加客户端凭据"}
-            </h3>
-
-            <div className="mb-3">
-              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">认证方式</label>
-              <SelectDropdown
-                options={[
-                  { value: "public_key", label: "公钥" },
-                  { value: "password", label: "密码" },
-                ]}
-                value={editing.auth_type}
-                onChange={(v) => setEditing({ ...editing, auth_type: v })}
-              />
-            </div>
-
-            {editing.auth_type === "public_key" ? (
-              <>
-                <div className="mb-3">
-                  <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">公钥内容</label>
-                  <textarea
-                    className="input h-20 font-mono"
-                    value={editing.public_key}
-                    onChange={(e) => onPublicKeyChange(e.target.value)}
-                    placeholder="ssh-ed25519 AAAA... claude-client"
-                    autoFocus
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-                    名称(默认从公钥末尾的 comment 自动截取,可以手动改)
-                  </label>
-                  <input className="input" value={editing.label} onChange={(e) => onLabelChange(e.target.value)} />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="mb-3">
-                  <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
-                    {editing.has_password ? "密码(已设置,留空则不修改)" : "密码"}
-                  </label>
-                  <input
-                    type="password"
-                    className="input"
-                    value={editing.password}
-                    onChange={(e) => setEditing({ ...editing, password: e.target.value })}
-                    autoFocus
-                  />
-                </div>
-                <div className="mb-3">
-                  <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">名称</label>
-                  <input
-                    className="input"
-                    value={editing.label}
-                    onChange={(e) => setEditing({ ...editing, label: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="mb-3">
-              <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">绑定的服务器(可多选)</label>
-              <MultiSelectDropdown
-                options={servers.map((r) => ({
-                  id: r.proxy_user,
-                  label: r.proxy_user,
-                  sublabel: `(${r.target_host}:${r.target_port})`,
-                }))}
-                selectedIds={new Set(editing.proxy_users)}
-                onToggle={(id) => toggleServer(id as string)}
-                placeholder="(未选择)"
-                emptyText='还没有配置任何服务器,先去"服务器"页面添加'
-              />
-            </div>
-
-            {error && <p className="mb-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => setEditing(null)}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:text-slate-200"
-              >
-                取消
-              </button>
-              <button
-                onClick={save}
-                className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-              >
-                保存
-              </button>
-            </div>
+        <Modal
+          open
+          title={
+            editing.id != null ? `编辑 ${editing.label}` : "添加客户端凭据"
+          }
+          onCancel={() => setEditing(null)}
+          footer={null}
+          width={600}
+          destroyOnHidden
+          styles={{
+            body: { maxHeight: "70vh", overflowY: "auto", paddingTop: 16 },
+          }}
+        >
+          <div className="mb-3">
+            <label className="mb-1 block text-xs text-slate-500 ">
+              认证方式
+            </label>
+            <SelectDropdown
+              options={[
+                { value: "public_key", label: "公钥" },
+                { value: "password", label: "密码" },
+              ]}
+              value={editing.auth_type}
+              onChange={(v) => setEditing({ ...editing, auth_type: v })}
+            />
           </div>
-        </div>
+
+          {editing.auth_type === "public_key" ? (
+            <>
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-slate-500 ">
+                  公钥内容
+                </label>
+                <Input.TextArea
+                  className="h-20 font-mono"
+                  value={editing.public_key}
+                  onChange={(e) => onPublicKeyChange(e.target.value)}
+                  placeholder="ssh-ed25519 AAAA... claude-client"
+                  autoFocus
+                />
+              </div>
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-slate-500 ">
+                  名称(默认从公钥末尾的 comment 自动截取,可以手动改)
+                </label>
+                <Input
+                  value={editing.label}
+                  onChange={(e) => onLabelChange(e.target.value)}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-slate-500 ">
+                  {editing.has_password ? "密码(已设置,留空则不修改)" : "密码"}
+                </label>
+                <Input.Password
+                  value={editing.password}
+                  onChange={(e) =>
+                    setEditing({ ...editing, password: e.target.value })
+                  }
+                  autoFocus
+                />
+              </div>
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-slate-500 ">
+                  名称
+                </label>
+                <Input
+                  value={editing.label}
+                  onChange={(e) =>
+                    setEditing({ ...editing, label: e.target.value })
+                  }
+                />
+              </div>
+            </>
+          )}
+
+          <div className="mb-3">
+            <label className="mb-1 block text-xs text-slate-500 ">
+              绑定的服务器(可多选)
+            </label>
+            <MultiSelectDropdown
+              options={servers.map((r) => ({
+                id: r.proxy_user,
+                label: r.proxy_user,
+                sublabel: `(${r.target_host}:${r.target_port})`,
+              }))}
+              selectedIds={new Set(editing.proxy_users)}
+              onToggle={(id) => toggleServer(id as string)}
+              placeholder="(未选择)"
+              emptyText='还没有配置任何服务器,先去"服务器"页面添加'
+            />
+          </div>
+
+          {error && <p className="mb-2 text-sm text-red-600 ">{error}</p>}
+
+          <div className="mt-4 flex justify-end gap-2">
+            <Button onClick={() => setEditing(null)}>取消</Button>
+            <Button type="primary" onClick={save}>
+              保存
+            </Button>
+          </div>
+        </Modal>
       )}
     </div>
   );

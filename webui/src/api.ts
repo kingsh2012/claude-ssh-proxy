@@ -2,6 +2,8 @@ export type AuthType = "password" | "private_key";
 export type ClientAuthType = "public_key" | "password";
 
 export interface ServerRecord {
+  connection_type?: "ssh" | "agent";
+  agent_online?: boolean;
   id: number;
   proxy_user: string;
   target_host: string;
@@ -30,6 +32,13 @@ export interface ServerRecord {
   auth_type?: AuthType;
   server_credential_id?: number | null;
   server_credential_label?: string;
+}
+
+export interface SelfRegistration {
+  enabled: boolean;
+  server_url: string;
+  token: string;
+  client_credential_ids: number[];
 }
 
 export interface ClientCredential {
@@ -137,7 +146,25 @@ export const api = {
   changePassword: (oldPassword: string, newPassword: string) =>
     request<{ ok: boolean }>("/api/admin/password", {
       method: "PUT",
-      body: JSON.stringify({ OldPassword: oldPassword, NewPassword: newPassword }),
+      body: JSON.stringify({
+        OldPassword: oldPassword,
+        NewPassword: newPassword,
+      }),
+    }),
+
+  getSelfRegistration: () =>
+    request<SelfRegistration>("/api/settings/agent-registration"),
+  putSelfRegistration: (body: {
+    server_url: string;
+    client_credential_ids: number[];
+  }) =>
+    request<SelfRegistration>("/api/settings/agent-registration", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  disableSelfRegistration: () =>
+    request<{ ok: boolean }>("/api/settings/agent-registration", {
+      method: "DELETE",
     }),
 
   listServers: () => request<ServerRecord[]>("/api/servers"),
@@ -151,15 +178,23 @@ export const api = {
       method: "DELETE",
     }),
   testServer: (proxyUser: string) =>
-    request<ServerRecord>(`/api/servers/${encodeURIComponent(proxyUser)}/test`, { method: "POST" }),
-  testAllServers: () => request<ServerRecord[]>("/api/servers/test-all", { method: "POST" }),
+    request<ServerRecord>(
+      `/api/servers/${encodeURIComponent(proxyUser)}/test`,
+      { method: "POST" },
+    ),
+  testAllServers: () =>
+    request<ServerRecord[]>("/api/servers/test-all", { method: "POST" }),
   setServerEnabled: (proxyUser: string, enabled: boolean) =>
-    request<ServerRecord>(`/api/servers/${encodeURIComponent(proxyUser)}/enabled`, {
-      method: "PUT",
-      body: JSON.stringify({ enabled }),
-    }),
+    request<ServerRecord>(
+      `/api/servers/${encodeURIComponent(proxyUser)}/enabled`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      },
+    ),
 
-  listServerCredentials: () => request<ServerCredential[]>("/api/server-credentials"),
+  listServerCredentials: () =>
+    request<ServerCredential[]>("/api/server-credentials"),
   createServerCredential: (cred: Omit<ServerCredential, "id">) =>
     request<{ ok: boolean; id: number }>("/api/server-credentials", {
       method: "POST",
@@ -171,21 +206,31 @@ export const api = {
       body: JSON.stringify(cred),
     }),
   deleteServerCredential: (id: number) =>
-    request<{ ok: boolean }>(`/api/server-credentials/${id}`, { method: "DELETE" }),
+    request<{ ok: boolean }>(`/api/server-credentials/${id}`, {
+      method: "DELETE",
+    }),
 
-  listClientCredentials: () => request<ClientCredential[]>("/api/client-credentials"),
-  createClientCredential: (cred: Omit<ClientCredential, "id" | "has_password">) =>
+  listClientCredentials: () =>
+    request<ClientCredential[]>("/api/client-credentials"),
+  createClientCredential: (
+    cred: Omit<ClientCredential, "id" | "has_password">,
+  ) =>
     request<{ ok: boolean; id: number }>("/api/client-credentials", {
       method: "POST",
       body: JSON.stringify(cred),
     }),
-  updateClientCredential: (id: number, cred: Omit<ClientCredential, "id" | "has_password">) =>
+  updateClientCredential: (
+    id: number,
+    cred: Omit<ClientCredential, "id" | "has_password">,
+  ) =>
     request<{ ok: boolean }>(`/api/client-credentials/${id}`, {
       method: "PUT",
       body: JSON.stringify(cred),
     }),
   deleteClientCredential: (id: number) =>
-    request<{ ok: boolean }>(`/api/client-credentials/${id}`, { method: "DELETE" }),
+    request<{ ok: boolean }>(`/api/client-credentials/${id}`, {
+      method: "DELETE",
+    }),
 
   getSettings: () => request<{ listen_addr: string }>("/api/settings"),
   updateSettings: (listenAddr: string) =>
@@ -198,7 +243,8 @@ export const api = {
     const params = new URLSearchParams({ limit: String(limit) });
     if (filters.proxyUser) params.set("proxy_user", filters.proxyUser);
     if (filters.targetHost) params.set("target_host", filters.targetHost);
-    if (filters.clientCredentialLabel) params.set("client_credential_label", filters.clientCredentialLabel);
+    if (filters.clientCredentialLabel)
+      params.set("client_credential_label", filters.clientCredentialLabel);
     return request<AuditLog[]>(`/api/audit?${params}`);
   },
   listConnections: () => request<ActiveConnection[]>("/api/connections"),

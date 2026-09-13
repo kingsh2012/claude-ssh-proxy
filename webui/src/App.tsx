@@ -1,20 +1,67 @@
-import { useEffect, useState } from "react";
-import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
+import {
+  App as AntApp,
+  Avatar,
+  Button,
+  Drawer,
+  Grid,
+  Layout,
+  Menu,
+  Space,
+  Spin,
+  Typography,
+} from "antd";
+import {
+  CloudServerOutlined,
+  KeyOutlined,
+  SafetyCertificateOutlined,
+  SettingOutlined,
+  AuditOutlined,
+  LinkOutlined,
+  MenuOutlined,
+  LogoutOutlined,
+} from "@ant-design/icons";
+import { lazy, Suspense, useEffect, useState } from "react";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { api, authExpiredEvent, type MeResponse } from "./api";
 import { Login } from "./Login";
 import { ForceChangePassword } from "./ForceChangePassword";
-import { ServersPage } from "./ServersPage";
-import { ServerCredentialsPage } from "./ServerCredentialsPage";
-import { ClientCredentialsPage } from "./ClientCredentialsPage";
-import { SettingsPage } from "./SettingsPage";
-import { AuditPage } from "./AuditPage";
-import { ConnectionsPage } from "./ConnectionsPage";
+const ServersPage = lazy(() =>
+  import("./ServersPage").then((module) => ({ default: module.ServersPage })),
+);
+const ServerCredentialsPage = lazy(() =>
+  import("./ServerCredentialsPage").then((module) => ({
+    default: module.ServerCredentialsPage,
+  })),
+);
+const ClientCredentialsPage = lazy(() =>
+  import("./ClientCredentialsPage").then((module) => ({
+    default: module.ClientCredentialsPage,
+  })),
+);
+const SettingsPage = lazy(() =>
+  import("./SettingsPage").then((module) => ({ default: module.SettingsPage })),
+);
+const AuditPage = lazy(() =>
+  import("./AuditPage").then((module) => ({ default: module.AuditPage })),
+);
+const ConnectionsPage = lazy(() =>
+  import("./ConnectionsPage").then((module) => ({
+    default: module.ConnectionsPage,
+  })),
+);
 
 const NAV_ITEMS = [
   { path: "/servers", label: "服务器" },
   { path: "/server-credentials", label: "服务器凭据" },
   { path: "/client-credentials", label: "客户端凭据" },
-  { path: "/settings", label: "监听设置" },
+  { path: "/settings", label: "服务设置" },
   { path: "/audit", label: "审计日志" },
   { path: "/connections", label: "当前连接" },
 ];
@@ -40,7 +87,10 @@ function App() {
   useEffect(() => {
     if (!me) return;
     const timer = setInterval(() => {
-      api.me().then(setMe).catch(() => undefined);
+      api
+        .me()
+        .then(setMe)
+        .catch(() => undefined);
     }, 60_000);
     return () => clearInterval(timer);
   }, [me]);
@@ -50,62 +100,154 @@ function App() {
     setMe(null);
   }
 
-  if (!checked) return null;
+  if (!checked)
+    return (
+      <div className="loading-screen">
+        <Spin size="large" />
+      </div>
+    );
 
   if (!me) {
     return <Login onLoggedIn={setMe} />;
   }
 
   if (!me.initialized) {
-    return <ForceChangePassword onDone={() => setMe({ ...me, initialized: true })} />;
+    return (
+      <ForceChangePassword onDone={() => setMe({ ...me, initialized: true })} />
+    );
   }
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
-        <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-4 sm:px-6">
-            <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">claude-ssh-proxy 管理后台</h1>
-            <div className="flex items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
-              <span>{me.username}</span>
-              <button onClick={logout} className="text-indigo-600 hover:underline dark:text-indigo-400">
-                退出登录
-              </button>
-            </div>
-          </div>
-          <nav className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 sm:px-6">
-            {NAV_ITEMS.map(({ path, label }) => (
-              <NavLink
-                key={path}
-                to={path}
-                className={({ isActive }) =>
-                  `shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${
-                    isActive
-                      ? "border-indigo-600 text-indigo-600 dark:text-indigo-400"
-                      : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400"
-                  }`
-                }
-              >
-                {label}
-              </NavLink>
-            ))}
-          </nav>
-        </header>
-
-        <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
+      <ConsoleLayout username={me.username} onLogout={logout}>
+        <Suspense fallback={<Spin />}>
           <Routes>
+            <Route
+              path="/agent-enrollments"
+              element={<Navigate to="/settings" replace />}
+            />
             <Route path="/servers" element={<ServersPage />} />
-            <Route path="/server-credentials" element={<ServerCredentialsPage />} />
-            <Route path="/client-credentials" element={<ClientCredentialsPage />} />
+            <Route
+              path="/server-credentials"
+              element={<ServerCredentialsPage />}
+            />
+            <Route
+              path="/client-credentials"
+              element={<ClientCredentialsPage />}
+            />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/audit" element={<AuditPage />} />
             <Route path="/connections" element={<ConnectionsPage />} />
             <Route path="*" element={<Navigate to="/servers" replace />} />
           </Routes>
-        </main>
-      </div>
+        </Suspense>
+      </ConsoleLayout>
     </BrowserRouter>
   );
 }
 
 export default App;
+
+const icons = [
+  <CloudServerOutlined key="0" />,
+  <KeyOutlined key="1" />,
+  <SafetyCertificateOutlined key="2" />,
+  <SettingOutlined key="3" />,
+  <AuditOutlined key="4" />,
+  <LinkOutlined key="5" />,
+];
+function ConsoleLayout({
+  username,
+  onLogout,
+  children,
+}: {
+  username: string;
+  onLogout: () => Promise<void>;
+  children: React.ReactNode;
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const screens = Grid.useBreakpoint();
+  const [open, setOpen] = useState(false);
+  const { message } = AntApp.useApp();
+  const title =
+    NAV_ITEMS.find((item) => item.path === location.pathname)?.label ||
+    "服务器";
+  const menu = (
+    <Menu
+      mode="inline"
+      selectedKeys={[location.pathname]}
+      items={NAV_ITEMS.map((item, i) => ({
+        key: item.path,
+        icon: icons[i],
+        label: item.label,
+      }))}
+      onClick={({ key }) => {
+        navigate(key);
+        setOpen(false);
+      }}
+    />
+  );
+  const brand = (
+    <div className="brand">
+      <CloudServerOutlined />
+      <span>
+        ops-ssh-proxy<small>运维连接管理</small>
+      </span>
+    </div>
+  );
+  return (
+    <Layout className="console-layout">
+      {screens.lg && (
+        <Layout.Sider width={208} theme="light" className="console-sider">
+          {brand}
+          {menu}
+          <div className="sider-note">SSH 代理 · Agent 自注册</div>
+        </Layout.Sider>
+      )}
+      <Drawer
+        title="ops-ssh-proxy"
+        placement="left"
+        open={open}
+        onClose={() => setOpen(false)}
+        size={240}
+        styles={{ body: { padding: 0 } }}
+      >
+        {menu}
+      </Drawer>
+      <Layout style={{ minWidth: 0 }}>
+        <Layout.Header className="console-header">
+          <Space>
+            {!screens.lg && (
+              <Button
+                aria-label="打开导航"
+                icon={<MenuOutlined />}
+                onClick={() => setOpen(true)}
+              />
+            )}
+            <Typography.Text strong>{title}</Typography.Text>
+          </Space>
+          <Space>
+            <Avatar
+              size="small"
+              style={{ background: "#e6f4ff", color: "#1677ff" }}
+            >
+              {username.slice(0, 1).toUpperCase()}
+            </Avatar>
+            <span>{username}</span>
+            <Button
+              type="text"
+              icon={<LogoutOutlined />}
+              onClick={() =>
+                onLogout().catch(() => message.error("退出失败，请重试"))
+              }
+            >
+              退出
+            </Button>
+          </Space>
+        </Layout.Header>
+        <Layout.Content className="console-content">{children}</Layout.Content>
+      </Layout>
+    </Layout>
+  );
+}

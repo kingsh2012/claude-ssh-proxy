@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -76,7 +77,7 @@ func TestOpenStoreMigratesPlaintextSecrets(t *testing.T) {
 	if err != nil || credential.AuthPassword != "plaintext" {
 		t.Fatalf("migrated credential is unreadable: credential=%#v err=%v", credential, err)
 	}
-	if info, err := os.Stat(dbPath + ".key"); err != nil || info.Mode().Perm() != 0600 {
+	if info, err := os.Stat(dbPath + ".key"); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatalf("encryption key permissions are not 0600: info=%v err=%v", info, err)
 	}
 }

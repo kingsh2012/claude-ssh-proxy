@@ -1,3 +1,4 @@
+/ops-ssh-proxy
 /claude-ssh-proxy
 /ssh-proxy
 *.db
@@ -8,3 +9,9 @@
 host_key
 webui/node_modules/
 webui/dist/
+
+/dist/
+*.exe
+agent-config.json
+
+agent-config.toml

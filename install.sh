@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly SERVICE_NAME="claude-ssh-proxy"
-readonly INSTALL_DIR="${CLAUDE_SSH_PROXY_INSTALL_DIR:-/data/claude-ssh-proxy}"
-readonly LEGACY_DATA_DIR="${CLAUDE_SSH_PROXY_LEGACY_DATA_DIR:-/var/lib/claude-ssh-proxy}"
-readonly UNIT_PATH="${CLAUDE_SSH_PROXY_UNIT_PATH:-/etc/systemd/system/${SERVICE_NAME}.service}"
+readonly SERVICE_NAME="ops-ssh-proxy"
+readonly INSTALL_DIR="${OPS_SSH_PROXY_INSTALL_DIR:-/data/ops-ssh-proxy}"
+readonly LEGACY_DATA_DIR="${OPS_SSH_PROXY_LEGACY_DATA_DIR:-/var/lib/ops-ssh-proxy}"
+readonly UNIT_PATH="${OPS_SSH_PROXY_UNIT_PATH:-/etc/systemd/system/${SERVICE_NAME}.service}"
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly SOURCE_BINARY="${SCRIPT_DIR}/claude-ssh-proxy"
+readonly SOURCE_BINARY="${SCRIPT_DIR}/ops-ssh-proxy"
 readonly SOURCE_UNIT="${SCRIPT_DIR}/systemd/${SERVICE_NAME}.service"
 readonly CONFIG_PATH="${INSTALL_DIR}/${SERVICE_NAME}.env"
 is_first_install=true
@@ -121,6 +121,13 @@ if ! "${SOURCE_BINARY}" -version >/dev/null; then
   exit 1
 fi
 
+# Renamed installations require an explicit migration to preserve the real unit
+# arguments, database key and listeners (custom installations vary).
+if systemctl cat claude-ssh-proxy.service >/dev/null 2>&1 || [[ -f /data/claude-ssh-proxy/claude-ssh-proxy.db || -f /var/lib/claude-ssh-proxy/claude-ssh-proxy.db ]]; then
+  echo "检测到 claude-ssh-proxy 旧部署。请按 Windows Agent 文档中的更名迁移说明保留数据和监听参数后迁移，不可作为全新安装覆盖。" >&2
+  exit 1
+fi
+
 echo "正在安装 ${SERVICE_NAME} 到 ${INSTALL_DIR}..."
 if systemctl is-active --quiet "${SERVICE_NAME}.service"; then
   service_was_active=true
@@ -130,9 +137,9 @@ fi
 
 install -d -m 0700 -o root -g root "${INSTALL_DIR}"
 
-if [[ ! -e ${INSTALL_DIR}/claude-ssh-proxy.db && -f ${LEGACY_DATA_DIR}/claude-ssh-proxy.db ]]; then
+if [[ ! -e ${INSTALL_DIR}/ops-ssh-proxy.db && -f ${LEGACY_DATA_DIR}/ops-ssh-proxy.db ]]; then
   echo "检测到旧数据目录,正在复制数据到 ${INSTALL_DIR}..."
-  for name in claude-ssh-proxy.db claude-ssh-proxy.db-wal claude-ssh-proxy.db-shm claude-ssh-proxy.db.key host_key; do
+  for name in ops-ssh-proxy.db ops-ssh-proxy.db-wal ops-ssh-proxy.db-shm ops-ssh-proxy.db.key host_key; do
     if [[ -f ${LEGACY_DATA_DIR}/${name} ]]; then
       install -m 0600 -o root -g root "${LEGACY_DATA_DIR}/${name}" "${INSTALL_DIR}/${name}"
     fi
@@ -140,7 +147,7 @@ if [[ ! -e ${INSTALL_DIR}/claude-ssh-proxy.db && -f ${LEGACY_DATA_DIR}/claude-ss
   echo "旧目录 ${LEGACY_DATA_DIR} 已保留,确认升级正常后可自行归档。"
 fi
 
-if [[ -f ${INSTALL_DIR}/claude-ssh-proxy.db ]]; then
+if [[ -f ${INSTALL_DIR}/ops-ssh-proxy.db ]]; then
   is_first_install=false
   backup_root="${INSTALL_DIR}/backups"
   backup_base="${backup_root}/$(date -u +%Y%m%dT%H%M%SZ)"
@@ -152,7 +159,7 @@ if [[ -f ${INSTALL_DIR}/claude-ssh-proxy.db ]]; then
   done
   echo "正在备份现有数据到 ${backup_dir}..."
   install -d -m 0700 -o root -g root "${backup_dir}"
-  for name in claude-ssh-proxy.db claude-ssh-proxy.db-wal claude-ssh-proxy.db-shm claude-ssh-proxy.db.key host_key; do
+  for name in ops-ssh-proxy.db ops-ssh-proxy.db-wal ops-ssh-proxy.db-shm ops-ssh-proxy.db.key host_key; do
     if [[ -f ${INSTALL_DIR}/${name} ]]; then
       install -m 0600 -o root -g root "${INSTALL_DIR}/${name}" "${backup_dir}/${name}"
     fi

@@ -243,3 +243,13 @@ Remove-Item -LiteralPath 'Cert:\CurrentUser\Root\55C80A83352F2133B05F832AA9E2921
 - 升级前停服一致性备份位于 `/data/claude-ssh-proxy/20260914-v0.0.26-deploy-ejob4_ss/production-backup`。38 台主机、3 份服务器凭证、3 份客户端凭证、39 条绑定、1 个管理员、1651 条审计及其他表逐项保留；完整性和外键检查通过。密钥、SSH host key、数据库路径和服务配置均未改变。
 - 生产服务的 HTTP 资源、鉴权和 SSH 握手检查通过；真实未登录浏览器访问登录页正常，主按钮实际颜色为 `rgb(21, 128, 61)`。使用生产静态资源配合样例 API 复验四种宽度、列设置保存、URL 筛选、分页、表单提交与隔离、Token 和登录流程，无页面运行错误，测试未修改生产业务数据。
 - 发布资产、截图和检查结果保存在本地 `dist/20260914-v0.0.26/`；服务器同次部署目录保留发布信息、部署脚本和验证结果。生产公网 WSS 尚未配置，本次没有生成生产自注册 Token。
+
+
+## v0.0.28 发布与部署（2026-09-14）
+
+- 已部署到 `192.168.102.7:8080`，代码提交 `34b9da0`。包含自注册草稿密钥与独立地址保存、注册后手动授权、启动命令自动填入 Token、列表静默刷新、启禁用状态强调、服务器跨页多选批量禁用/删除，以及统一“凭证”“新建”文案。高级设置位于主机表单末尾。
+- [正式发布](https://github.com/kingsh2012/claude-ssh-proxy/releases/tag/v0.0.28)；[CI](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34801748567) 与 [Release](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34801748543) 均成功。v0.0.27 是过程中生成的发布包，未部署。
+- 从 v0.0.26 直接升级，备份位于 `/data/claude-ssh-proxy/20260914-v0.0.28-deploy-7eehtked/production-backup`。38 台主机、两类各 3 份凭证、39 条授权关联、1 个管理员和 1651 条审计逐项保留；数据库完整性、外键、密钥和 systemd 配置检查通过。
+- 服务为 active/running，NRestarts=0；HTTP 静态资源、未登录接口 401 和 SSH 握手通过。正式静态资源配合模拟业务 API 验证了多选禁用、部分删除失败保留选择及重试、表单顺序、Token 生成/保存/刷新恢复、静默刷新与展开保留、宽窄屏；浏览器验证未修改生产业务数据。
+- 本机 Windows 集成测试验证：自注册后 SSH 拒绝访问，手动关联客户端凭证后可读取 Windows 文件。生产 WSS 域名仍未配置，本次未生成生产 Token 或修改生产授权。
+- 服务端二进制 SHA256：`bfb2f983dd990d660b258a0651b5183a06a418edf41d37bcf25f35a689390935`。本机 `dist/` 已同步正式服务端与 Windows Agent 包；验证记录保存在 `dist/20260914-v0.0.28/`。

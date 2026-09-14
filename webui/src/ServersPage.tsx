@@ -277,28 +277,16 @@ export function ServersPage() {
         { text: "已启用", value: "true" },
         { text: "已禁用", value: "false" },
       ],
-      width: 110,
+      width: 150,
       render: (_, s) => (
-        <Badge
-          status={
-            !s.enabled
-              ? "default"
-              : s.connection_type === "agent"
-                ? s.agent_online
-                  ? "success"
-                  : "warning"
-                : "default"
-          }
-          text={
-            !s.enabled
-              ? "已禁用"
-              : s.connection_type === "agent"
-                ? s.agent_online
-                  ? "在线"
-                  : "离线"
-                : "已启用"
-          }
-        />
+        <div className="server-status">
+          <Tag color={s.enabled ? "success" : "error"} className="server-enabled-tag">
+            {s.enabled ? "已启用" : "已禁用"}
+          </Tag>
+          {s.enabled && s.connection_type === "agent" && (
+            <Badge status={s.agent_online ? "success" : "warning"} text={s.agent_online ? "在线" : "离线"} />
+          )}
+        </div>
       ),
     },
     {
@@ -405,7 +393,7 @@ export function ServersPage() {
       title={false}
       ghost
       style={{ padding: 0 }}
-      breadcrumb={{ items: [{ title: "运维管理" }, { title: "服务器" }] }}
+      breadcrumb={{ items: [{ title: "运维管理" }, { title: "服务器列表" }] }}
     >
       {error && !editing && (
         <p role="alert" className="mb-3 text-red-600">
@@ -417,6 +405,7 @@ export function ServersPage() {
         rowKey="id"
 
         {...view.tableProps}
+        rowClassName={(server) => server.enabled ? "" : "server-row-disabled"}
         loading={loading}
         headerTitle={
           <ListToolbarSearch

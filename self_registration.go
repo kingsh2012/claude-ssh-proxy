@@ -45,19 +45,7 @@ func (s *Store) selfRegistration() (SelfRegistration, error) {
 	if err != nil {
 		return out, err
 	}
-	rows, err := s.db.Query(`SELECT client_credential_id FROM agent_registration_credentials ORDER BY client_credential_id`)
-	if err != nil {
-		return out, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id int64
-		if err = rows.Scan(&id); err != nil {
-			return out, err
-		}
-		out.Credentials = append(out.Credentials, id)
-	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (a *API) handleGetSelfRegistration(w http.ResponseWriter, r *http.Request) {
@@ -70,26 +58,103 @@ func (a *API) handleGetSelfRegistration(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, out)
 }
 
-func (a *API) handlePutSelfRegistration(w http.ResponseWriter, r *http.Request) {
+// Saving the destination keeps the authentication secret and existing peers intact.
+func (a *API) handleSaveRegistrationAddress(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ServerURL   string  `json:"server_url"`
-		Credentials []int64 `json:"client_credential_ids"`
+		ServerURL string `json:"server_url"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if !agentwire.ValidServerURL(body.ServerURL) || len(body.Credentials) == 0 || len(body.Credentials) > 64 {
-		writeError(w, 400, "请填写有效 WSS 地址，并选择新主机的默认客户端凭据")
+	if !agentwire.ValidServerURL(body.ServerURL) {
+		writeError(w, 400, "请填写有效 WSS 地址")
+		return
+	}
+	h := a.proxy.agents
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	current, err := a.store.selfRegistration()
+	if err != nil {
+		writeError(w, 500, "读取自注册设置失败")
+		return
+	}
+	current.ServerURL = body.ServerURL
+	if current.Token != "" {
+		_, secret, err := agentwire.ParseEnrollmentToken(current.Token)
+		if err != nil {
+			writeError(w, 500, "读取当前密钥失败")
+			return
+		}
+		current.Token = agentwire.EnrollmentToken(body.ServerURL, secret)
+	}
+	encrypted, err := a.store.encryptSecret(current.Token)
+	if err != nil {
+		writeError(w, 500, "保存地址失败")
+		return
+	}
+	_, err = a.store.db.Exec(`INSERT INTO agent_registration_settings(id,enabled,server_url,token_hash,token_encrypted) VALUES(1,0,?,'',?) ON CONFLICT(id) DO UPDATE SET server_url=excluded.server_url,token_encrypted=excluded.token_encrypted`, body.ServerURL, encrypted)
+	if err != nil {
+		writeError(w, 500, "保存地址失败")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, current)
+}
+
+// Generate a draft only; the active key remains unchanged until PUT succeeds.
+func (a *API) handleGenerateSelfRegistration(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ServerURL string `json:"server_url"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if !agentwire.ValidServerURL(body.ServerURL) {
+		writeError(w, 400, "请填写有效 WSS 地址")
 		return
 	}
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
-		writeError(w, 500, "生成 Token 失败")
+		writeError(w, 500, "生成密钥失败")
 		return
 	}
-	secret := hex.EncodeToString(key)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, map[string]string{"token": agentwire.EnrollmentToken(body.ServerURL, hex.EncodeToString(key))})
+}
+
+func (a *API) handlePutSelfRegistration(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Token     *string `json:"token"`
+		ServerURL string  `json:"server_url"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if !agentwire.ValidServerURL(body.ServerURL) {
+		writeError(w, 400, "请填写有效 WSS 地址")
+		return
+	}
+	var token, secret string
+	if body.Token != nil {
+		var serverURL string
+		var err error
+		token = *body.Token
+		serverURL, secret, err = agentwire.ParseEnrollmentToken(token)
+		if err != nil || serverURL != body.ServerURL {
+			writeError(w, 400, "密钥无效或连接地址已修改，请重新随机生成密钥")
+			return
+		}
+	} else {
+		// Preserve the previous API contract for older management clients.
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			writeError(w, 500, "生成密钥失败")
+			return
+		}
+		secret = hex.EncodeToString(key)
+		token = agentwire.EnrollmentToken(body.ServerURL, secret)
+	}
 	hash := sha256.Sum256([]byte(secret))
-	token := agentwire.EnrollmentToken(body.ServerURL, secret)
 	encrypted, err := a.store.encryptSecret(token)
 	if err != nil {
 		writeError(w, 500, "保存 Token 失败")
@@ -99,6 +164,12 @@ func (a *API) handlePutSelfRegistration(w http.ResponseWriter, r *http.Request) 
 	h := a.proxy.agents
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	var previousHash string
+	err = a.store.db.QueryRow(`SELECT token_hash FROM agent_registration_settings WHERE id=1`).Scan(&previousHash)
+	if err != nil && err != sql.ErrNoRows {
+		writeError(w, 500, "读取原密钥失败")
+		return
+	}
 	tx, err := a.store.db.Begin()
 	if err != nil {
 		writeError(w, 500, "保存失败")
@@ -114,19 +185,15 @@ func (a *API) handlePutSelfRegistration(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 500, "保存失败")
 		return
 	}
-	for _, id := range body.Credentials {
-		if _, err = tx.Exec(`INSERT OR IGNORE INTO agent_registration_credentials(client_credential_id) VALUES(?)`, id); err != nil {
-			writeError(w, 400, "客户端凭据不存在")
-			return
-		}
-	}
 	if err = tx.Commit(); err != nil {
 		writeError(w, 500, "保存失败")
 		return
 	}
-	h.disconnectRegisteredLocked()
+	if previousHash != hex.EncodeToString(hash[:]) {
+		h.disconnectRegisteredLocked()
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, SelfRegistration{Enabled: true, ServerURL: body.ServerURL, Token: token, Credentials: body.Credentials})
+	writeJSON(w, SelfRegistration{Enabled: true, ServerURL: body.ServerURL, Token: token, Credentials: []int64{}})
 }
 
 func (a *API) handleDisableSelfRegistration(w http.ResponseWriter, r *http.Request) {
@@ -224,12 +291,6 @@ func (s *Store) resolveAgent(hash, hostname string, register bool) (int64, strin
 	if count != 0 {
 		return 0, "", errAgentIdentity
 	}
-	if err = tx.QueryRow(`SELECT count(*) FROM agent_registration_credentials`).Scan(&count); err != nil {
-		return 0, "", err
-	}
-	if count == 0 {
-		return 0, "", errAgentIdentity
-	}
 	res, err = tx.Exec(`INSERT INTO servers(proxy_user,target_host,target_port,connection_type,agent_token_hash) VALUES(?,?,0,'agent',?)`, hostname, hostname, peerHash)
 	if err != nil {
 		return 0, "", err
@@ -239,9 +300,6 @@ func (s *Store) resolveAgent(hash, hostname string, register bool) (int64, strin
 		return 0, "", err
 	}
 	if _, err = tx.Exec(`INSERT INTO agent_registration_hosts(name,server_id) VALUES(?,?)`, hostname, id); err != nil {
-		return 0, "", err
-	}
-	if _, err = tx.Exec(`INSERT INTO server_client_credentials(server_id,client_credential_id) SELECT ?,client_credential_id FROM agent_registration_credentials`, id); err != nil {
 		return 0, "", err
 	}
 	return id, peerHash, tx.Commit()

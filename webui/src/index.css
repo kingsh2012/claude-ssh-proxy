@@ -451,3 +451,36 @@ ol {
     padding-inline: 8px;
   }
 }
+
+.server-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.server-enabled-tag {
+  font-weight: 600;
+}
+.ant-table-tbody > tr.server-row-disabled > td {
+  background: #f4f5f7;
+}
+.ant-table-tbody > tr.server-row-disabled:hover > td {
+  background: #e8eaed;
+}
+
+.registration-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.registration-key-row > .ant-input {
+  flex: 1;
+  min-width: 0;
+}
+.registration-key-row > .ant-btn {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .registration-key-row { flex-wrap: wrap; }
+  .registration-key-row > .ant-input { flex-basis: 100%; }
+}

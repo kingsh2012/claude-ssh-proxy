@@ -12,24 +12,27 @@ export function ConnectionsPage() {
   const [loading, setLoading] = useState(false);
   const { message } = App.useApp();
   const [connections, setConnections] = useState<ActiveConnection[]>([]);
-  const error = "";
+  const [error, setError] = useState("");
   const [now, setNow] = useState(Date.now());
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      setConnections((await api.listConnections()) ?? []);
+      const next = (await api.listConnections()) ?? [];
+      setConnections((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+      setError("");
       setNow(Date.now());
     } catch {
-      void message.error({ content: "读取连接失败", key: "connections-load" });
+      setError("读取连接失败");
+      if (!silent) void message.error({ content: "读取连接失败", key: "connections-load" });
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [message]);
 
   useEffect(() => {
     load();
-    const timer = setInterval(load, 3000);
+    const timer = setInterval(() => void load(true), 3000);
     return () => clearInterval(timer);
   }, [load]);
 
@@ -83,14 +86,14 @@ export function ConnectionsPage() {
 
         {...view.tableProps}
         loading={loading}
-        headerTitle={`当前 ${connections.length} 条连接 · 每 3 秒刷新`}
+        headerTitle={`当前 ${connections.length} 条连接 · ${error ? "更新失败，正在重试" : "每 3 秒自动更新"}`}
         toolBarRender={() => [
           <ToolbarIconAction
             key="refresh"
             label="刷新"
             icon={<RefreshIcon />}
             disabled={loading}
-            onClick={load}
+            onClick={() => void load()}
           />,
         ]}
         locale={{

@@ -114,6 +114,21 @@ export function ServerForm({
             }))}
             fieldProps={{ showSearch: true, optionFilterProp: "label" }}
           />
+
+        </>
+      )}
+      <ProFormSelect
+        name="credentialIds"
+        label="客户端凭据"
+        mode="multiple"
+        placeholder="选择客户端凭据"
+        options={clientCredentials.map((c) => ({
+          label: c.label,
+          value: c.id,
+        }))}
+        fieldProps={{ optionFilterProp: "label" }}
+      />
+      {!agent && (
           <Collapse
             ghost
             items={[
@@ -138,19 +153,7 @@ export function ServerForm({
               },
             ]}
           />
-        </>
       )}
-      <ProFormSelect
-        name="credentialIds"
-        label="客户端凭据"
-        mode="multiple"
-        placeholder="选择客户端凭据"
-        options={clientCredentials.map((c) => ({
-          label: c.label,
-          value: c.id,
-        }))}
-        fieldProps={{ optionFilterProp: "label" }}
-      />
     </ModalForm>
   );
 }

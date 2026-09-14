@@ -17,7 +17,7 @@ import { Login } from "../Login";
 import { ForceChangePassword } from "../ForceChangePassword";
 import settings from "../../config/defaultSettings";
 const menuRoutes = [
-  { path: "/servers", name: "服务器", icon: <CloudServerOutlined /> },
+  { path: "/servers", name: "服务器列表", icon: <CloudServerOutlined /> },
   { path: "/server-credentials", name: "服务器凭据", icon: <KeyOutlined /> },
   {
     path: "/client-credentials",

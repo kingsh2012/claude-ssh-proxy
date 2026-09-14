@@ -55,7 +55,7 @@ func TestSharedRegistrationMultipleHostsReconnectRotationAndDeletion(t *testing.
 		}
 		ids[name] = id
 		s, err := p.store.GetServer(name)
-		if err != nil || s.ProxyUser != name || len(s.ClientCredentialLabels) != 1 || s.AgentTokenHash != peerHash || peerHash == hash {
+		if err != nil || s.ProxyUser != name || len(s.ClientCredentialLabels) != 0 || s.AgentTokenHash != peerHash || peerHash == hash {
 			t.Fatal("registration name, credentials or hash mismatch")
 		}
 		again, _, err := p.store.resolveAgent(hash, strings.ToUpper(name), true)
@@ -74,14 +74,6 @@ func TestSharedRegistrationMultipleHostsReconnectRotationAndDeletion(t *testing.
 	w := registrationRequest(a, session, "GET", "")
 	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal("settings read failed")
-	}
-	// Bad credential references roll back the entire replacement.
-	w = registrationRequest(a, session, "PUT", `{"server_url":"wss://example.com/agent","client_credential_ids":[999999]}`)
-	if w.Code != 400 {
-		t.Fatal("unknown credential accepted")
-	}
-	if _, _, err := p.store.resolveAgent(hash, "es-windows-01", true); err != nil {
-		t.Fatal("failed update destroyed valid key")
 	}
 	_, next := createSharedToken(t, a, session, cid)
 	if _, _, err := p.store.resolveAgent(hash, "es-windows-01", true); err == nil {
@@ -175,5 +167,142 @@ func TestSharedRegistrationRevocationClosesWebSocket(t *testing.T) {
 	c.SetReadDeadline(time.Now().Add(time.Second))
 	if _, _, err = c.ReadMessage(); err == nil {
 		t.Fatal("rotation did not close socket")
+	}
+}
+
+func TestRegistrationDraftRequiresSave(t *testing.T) {
+	p, a, session, cid := enrollmentFixture(t)
+	_, oldHash := createSharedToken(t, a, session, cid)
+	generate := func(auth string, address string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"server_url": address})
+		r := httptest.NewRequest("POST", "/api/settings/agent-registration/generate", strings.NewReader(string(body)))
+		if auth != "" {
+			r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: auth})
+		}
+		w := httptest.NewRecorder()
+		a.Router().ServeHTTP(w, r)
+		return w
+	}
+	if generate("", "wss://example.com/agent").Code != 401 {
+		t.Fatal("unauthenticated generation accepted")
+	}
+	if generate(session, "http://example.com/agent").Code != 400 {
+		t.Fatal("invalid address accepted")
+	}
+	w := generate(session, "wss://example.com/agent")
+	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("generation failed")
+	}
+	var draft struct {
+		Token string `json:"token"`
+	}
+	if json.Unmarshal(w.Body.Bytes(), &draft) != nil {
+		t.Fatal("invalid draft")
+	}
+	_, secret, err := agentwire.ParseEnrollmentToken(draft.Token)
+	if err != nil {
+		t.Fatal("invalid token")
+	}
+	sum := sha256.Sum256([]byte(secret))
+	hash := hex.EncodeToString(sum[:])
+	if _, _, err := p.store.resolveAgent(hash, "draft-host", true); err == nil {
+		t.Fatal("unsaved draft accepted")
+	}
+	if _, _, err := p.store.resolveAgent(oldHash, "old-host", true); err != nil {
+		t.Fatal("generation revoked active key")
+	}
+	save := func(token, address string, credential int64) int {
+		body, _ := json.Marshal(map[string]any{"token": token, "server_url": address, "client_credential_ids": []int64{credential}})
+		return registrationRequest(a, session, "PUT", string(body)).Code
+	}
+	if save(draft.Token, "wss://other.example.com/agent", cid) != 400 {
+		t.Fatal("mismatched address accepted")
+	}
+	if save("", "wss://example.com/agent", cid) != 400 {
+		t.Fatal("empty draft accepted")
+	}
+	if _, _, err := p.store.resolveAgent(oldHash, "old-host", true); err != nil {
+		t.Fatal("failed save revoked active key")
+	}
+	if save(draft.Token, "wss://example.com/agent", cid) != 200 {
+		t.Fatal("save failed")
+	}
+	current, err := p.store.selfRegistration()
+	if err != nil || current.Token != draft.Token {
+		t.Fatal("save changed draft key")
+	}
+	if _, _, err := p.store.resolveAgent(hash, "draft-host", true); err != nil {
+		t.Fatal("saved draft rejected")
+	}
+	if _, _, err := p.store.resolveAgent(oldHash, "old-host", true); err == nil {
+		t.Fatal("old key remains active")
+	}
+	if save(draft.Token, "wss://example.com/agent", cid) != 200 {
+		t.Fatal("repeat save failed")
+	}
+	current, _ = p.store.selfRegistration()
+	if current.Token != draft.Token {
+		t.Fatal("repeat save rotated key")
+	}
+}
+
+func TestRegistrationAddressAndManualAuthorization(t *testing.T) {
+	p, a, session, cid := enrollmentFixture(t)
+	saveAddress := func(address string) SelfRegistration {
+		t.Helper()
+		body, _ := json.Marshal(map[string]string{"server_url": address})
+		r := httptest.NewRequest("PUT", "/api/settings/agent-registration/address", strings.NewReader(string(body)))
+		r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
+		w := httptest.NewRecorder()
+		a.Router().ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("address save: %d", w.Code)
+		}
+		var value SelfRegistration
+		if json.Unmarshal(w.Body.Bytes(), &value) != nil {
+			t.Fatal("invalid address response")
+		}
+		return value
+	}
+	value := saveAddress("wss://example.com/agent")
+	if value.Enabled || value.Token != "" {
+		t.Fatal("saving address enabled registration")
+	}
+	w := registrationRequest(a, session, "PUT", `{"server_url":"wss://example.com/agent"}`)
+	if w.Code != 200 {
+		t.Fatal("registration still requires default credentials")
+	}
+	current, _ := p.store.selfRegistration()
+	_, secret, _ := agentwire.ParseEnrollmentToken(current.Token)
+	sum := sha256.Sum256([]byte(secret))
+	hash := hex.EncodeToString(sum[:])
+	// Historical defaults must never grant access to newly registered hosts.
+	if _, err := p.store.db.Exec(`INSERT INTO agent_registration_credentials(client_credential_id) VALUES(?)`, cid); err != nil {
+		t.Fatal(err)
+	}
+	id, _, err := p.store.resolveAgent(hash, "manual-host", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	creds, err := p.store.ListClientCredentialsForServerID(id)
+	if err != nil || len(creds) != 0 {
+		t.Fatal("registration granted access automatically")
+	}
+	// Use the same store operation as the manual credential edit API.
+	if err := p.store.UpdateClientCredential(cid, ClientCredential{Label: "LLM", AuthType: "password", Password: "test-password"}, []string{"manual-host"}); err != nil {
+		t.Fatal(err)
+	}
+	value = saveAddress("wss://new.example.com/agent")
+	url, nextSecret, err := agentwire.ParseEnrollmentToken(value.Token)
+	if err != nil || url != "wss://new.example.com/agent" || nextSecret != secret || !value.Enabled {
+		t.Fatal("address save changed authentication key")
+	}
+	again, _, err := p.store.resolveAgent(hash, "manual-host", true)
+	if err != nil || again != id {
+		t.Fatal("address save or reconnect changed route")
+	}
+	creds, err = p.store.ListClientCredentialsForServerID(id)
+	if err != nil || len(creds) != 1 || creds[0].ID != cid {
+		t.Fatal("manual authorization was lost")
 	}
 }

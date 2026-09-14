@@ -1,13 +1,11 @@
-import { Collapse, Input, Button } from "antd";
+import { Input, Button } from "antd";
 import { useFeedback } from "./useFeedback";
 import { useEffect, useState } from "react";
 import {
   api,
   ApiError,
-  type ClientCredential,
   type SelfRegistration,
 } from "./api";
-import { MultiSelectDropdown } from "./MultiSelectDropdown";
 
 export function SelfRegistrationSettings() {
   const { confirm } = useFeedback();
@@ -17,30 +15,44 @@ export function SelfRegistrationSettings() {
       ? `wss://${window.location.host}/agent`
       : "",
   );
-  const [credentials, setCredentials] = useState<ClientCredential[]>([]);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [advanced, setAdvanced] = useState(false);
-  const [visible, setVisible] = useState(false);
+  const [token, setToken] = useState("");
+  const [tokenAddress, setTokenAddress] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    Promise.all([api.getSelfRegistration(), api.listClientCredentials()])
-      .then(([value, creds]) => {
+    api.getSelfRegistration()
+      .then((value) => {
         setSettings(value);
+        setToken(value.token);
+        setTokenAddress(value.server_url);
         if (value.server_url) setAddress(value.server_url);
-        setSelected(new Set(value.client_credential_ids));
-        setCredentials(creds);
       })
       .catch(() => setError("读取自注册设置失败，请刷新重试"));
   }, []);
 
   async function generate() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const draft = await api.generateSelfRegistration(address);
+      setToken(draft.token);
+      setTokenAddress(address);
+      setMessage("密钥已生成，点击保存后生效");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "生成密钥失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function save() {
     if (
-      settings?.enabled &&
+      settings?.enabled && token !== settings.token &&
       !(await confirm(
-        "重新生成后，旧 Token 立即失效，使用它的 Agent 会断开。需要用新 Token 重新启动，继续？",
+        "保存新密钥后，旧密钥失效，使用它的 Agent 会断开。需要用新密钥重新启动，继续？",
       ))
     )
       return;
@@ -50,12 +62,10 @@ export function SelfRegistrationSettings() {
     try {
       setSettings(
         await api.putSelfRegistration({
+          token,
           server_url: address,
-          client_credential_ids: [...selected],
         }),
       );
-      setVisible(false);
-      setAdvanced(false);
       setMessage("自注册 Token 已生效");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "保存失败");
@@ -63,54 +73,24 @@ export function SelfRegistrationSettings() {
       setBusy(false);
     }
   }
-  async function disable() {
-    if (
-      !(await confirm(
-        "停用后，使用此 Token 的 Agent 会断开，并且无法注册或重连。继续？",
-      ))
-    )
-      return;
+  async function saveAddress() {
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      await api.disableSelfRegistration();
-      setSettings((previous) =>
-        previous ? { ...previous, enabled: false } : previous,
-      );
-      setVisible(false);
-      setMessage("自注册已停用");
+      const value = await api.saveRegistrationAddress(address);
+      setSettings(value);
+      setAddress(value.server_url);
+      setToken(value.token);
+      setTokenAddress(value.server_url);
+      setMessage("公网连接地址已保存");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "停用失败");
+      setError(e instanceof ApiError ? e.message : "保存地址失败");
     } finally {
       setBusy(false);
     }
   }
-  async function copy(value: string) {
-    setError("");
-    setMessage("");
-    try {
-      if (navigator.clipboard && window.isSecureContext)
-        await navigator.clipboard.writeText(value);
-      else {
-        const field = document.createElement("textarea");
-        field.value = value;
-        field.style.position = "fixed";
-        field.style.opacity = "0";
-        document.body.appendChild(field);
-        try {
-          field.select();
-          if (!document.execCommand("copy")) throw new Error("copy");
-        } finally {
-          field.remove();
-        }
-      }
-      setMessage("已复制");
-    } catch {
-      setError("复制失败，请点击显示后手动复制");
-    }
-  }
-  const command = `.\\ops-ssh-agent.exe -token '${settings?.token ?? ""}'`;
+  const dirty = token !== settings?.token || !settings?.enabled;
   return (
     <section className="registration-card">
       <div className="space-y-3">
@@ -122,122 +102,50 @@ export function SelfRegistrationSettings() {
         </div>
         <p className="text-sm text-slate-500">
           多台 Windows 共用此密钥，启动 Agent
-          后自动加入服务器列表，无需逐台申请。
+          后自动加入服务器列表。注册后需在服务器列表中手动授权，才能通过 SSH 代理访问。
         </p>
-        {settings?.token && (
-          <div className="space-y-2">
-            <label htmlFor="registration-token" className="block text-sm">
-              当前 Token
-            </label>
-            <Input
-              id="registration-token"
-              className="font-mono text-xs"
-              type={visible ? "text" : "password"}
-              autoComplete="off"
-              readOnly
-              value={settings.token}
-              onFocus={(e) => e.currentTarget.select()}
-            />
-            <div className="flex flex-wrap gap-3 text-sm  ">
-              <Button type="link" onClick={() => setVisible(!visible)}>
-                {visible ? "隐藏" : "显示"}
-              </Button>
-              <Button type="link" onClick={() => copy(settings.token)}>
-                复制 Token
-              </Button>
-              <Button type="link" onClick={() => copy(command)}>
-                复制启动命令
-              </Button>
-            </div>
-            {visible && (
-              <Input.TextArea
-                aria-label="Agent 启动命令"
-                className="h-28 font-mono text-xs"
-                autoComplete="off"
-                readOnly
-                value={command}
-                onFocus={(e) => e.currentTarget.select()}
-              />
-            )}
-          </div>
+        <label htmlFor="registration-address" className="block text-sm">公网连接地址</label>
+        <div className="registration-key-row">
+          <Input
+            id="registration-address"
+            value={address}
+            disabled={busy}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="wss://proxy.example.com/agent"
+          />
+          <Button onClick={saveAddress} disabled={!settings || busy || !address || address === settings.server_url}>
+            保存地址
+          </Button>
+        </div>
+        <p className="text-xs text-slate-500">
+          填写 Windows 可访问且已配置 HTTPS 证书的域名地址，例如 wss://proxy.example.com/agent。
+          地址会包含在 Token 中，Agent 无需单独填写域名。
+        </p>
+        <div className="registration-key-row">
+          <Input
+            id="registration-token"
+            aria-label="自注册 Token"
+            className="font-mono text-xs"
+            autoComplete="off"
+            readOnly
+            value={token}
+            placeholder="点击随机生成密钥"
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          <Button onClick={generate} disabled={!settings || busy || !address || address !== settings.server_url}>
+            随机生成密钥
+          </Button>
+          <Button type="primary" onClick={save} loading={busy} disabled={!settings || busy || !token || tokenAddress !== address || !dirty}>
+            保存
+          </Button>
+        </div>
+        {token && tokenAddress !== address && (
+          <p className="text-sm text-amber-700">连接地址已修改，请先保存地址，再生成密钥。</p>
         )}
         <p className="text-sm text-slate-500">
           默认使用 Windows 主机名作为代理登录名，也可指定：
         </p>
-        <pre className="agent-command">{`.\\ops-ssh-agent.exe -token '自注册Token' -hostname 'es-windows-01'`}</pre>
-        <Collapse
-          ghost
-          destroyOnHidden
-          activeKey={!settings?.token || advanced ? ["connection"] : []}
-          onChange={(keys) => setAdvanced(keys.includes("connection"))}
-          items={[
-            {
-              key: "connection",
-              label: "连接地址与默认访问权限",
-              children: (
-                <div className="space-y-2">
-                  <label
-                    htmlFor="registration-address"
-                    className="block text-sm"
-                  >
-                    Agent 连接地址
-                  </label>
-                  <Input
-                    id="registration-address"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="wss://proxy.example.com/agent"
-                  />
-                  <p className="text-xs text-slate-500">
-                    填写 Windows 可访问的 WSS 地址，生成 Token
-                    时保存。修改后需重新生成 Token。
-                  </p>
-                  <label className="block text-sm">
-                    新主机的默认客户端凭据
-                  </label>
-                  <MultiSelectDropdown
-                    options={credentials.map((c) => ({
-                      id: c.id,
-                      label: c.label,
-                    }))}
-                    selectedIds={selected}
-                    onToggle={(id) =>
-                      setSelected((previous) => {
-                        const next = new Set(previous);
-                        if (next.has(Number(id))) next.delete(Number(id));
-                        else next.add(Number(id));
-                        return next;
-                      })
-                    }
-                    placeholder="选择可访问新主机的凭据"
-                    emptyText="请先添加客户端凭据"
-                  />
-                  <p className="text-xs text-slate-500">
-                    仅在新主机首次注册时应用，已有主机的权限在服务器列表中管理。
-                  </p>
-                </div>
-              ),
-            },
-          ]}
-        />
-        <div className="flex flex-wrap gap-3">
-          <Button
-            type="primary"
-            onClick={generate}
-            disabled={!settings || busy || !address || selected.size === 0}
-          >
-            {busy
-              ? "处理中…"
-              : settings?.token
-                ? "重新生成 Token"
-                : "生成 Token"}
-          </Button>
-          {settings?.enabled && (
-            <Button danger type="link" onClick={disable} disabled={busy}>
-              停用自注册
-            </Button>
-          )}
-        </div>
+        <pre className="agent-command">{`.\\ops-ssh-agent.exe -token '${token || "自注册Token"}' -hostname 'es-windows-01'`}</pre>
         {message && <p className="text-sm text-emerald-600">{message}</p>}
         {error && (
           <p role="alert" className="text-sm text-red-600">

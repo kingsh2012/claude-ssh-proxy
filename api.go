@@ -61,6 +61,8 @@ func (a *API) Router() http.Handler {
 	mux.HandleFunc("PUT /api/client-credentials/{id}", a.auth(a.handleUpdateClientCredential))
 	mux.HandleFunc("DELETE /api/client-credentials/{id}", a.auth(a.handleDeleteClientCredential))
 
+	mux.HandleFunc("PUT /api/settings/agent-registration/address", a.auth(a.handleSaveRegistrationAddress))
+	mux.HandleFunc("POST /api/settings/agent-registration/generate", a.auth(a.handleGenerateSelfRegistration))
 	mux.HandleFunc("GET /api/settings/agent-registration", a.auth(a.handleGetSelfRegistration))
 	mux.HandleFunc("PUT /api/settings/agent-registration", a.auth(a.handlePutSelfRegistration))
 	mux.HandleFunc("DELETE /api/settings/agent-registration", a.auth(a.handleDisableSelfRegistration))

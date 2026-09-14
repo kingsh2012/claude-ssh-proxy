@@ -22,22 +22,21 @@ export function AuditPage() {
   const [loading, setRefreshing] = useState(false);
 
   const [error, setError] = useState("");
-  async function load() {
-    setRefreshing(true);
+  async function load(silent = false) {
+    if (!silent) setRefreshing(true);
     try {
-      setError("");
-      setLogs(
-        (await api.listAudit(200, {
+      const next = (await api.listAudit(200, {
           proxyUser,
           targetHost,
           clientCredentialLabel,
-        })) ?? [],
-      );
+        })) ?? [];
+      setLogs((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+      setError("");
     } catch {
       setError("读取审计日志失败");
-      void message.error({ content: "读取审计日志失败", key: "audit-load" });
+      if (!silent) void message.error({ content: "读取审计日志失败", key: "audit-load" });
     } finally {
-      setRefreshing(false);
+      if (!silent) setRefreshing(false);
     }
   }
 
@@ -52,7 +51,7 @@ export function AuditPage() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 5000);
+    const t = setInterval(() => void load(true), 5000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proxyUser, targetHost, clientCredentialLabel]);
@@ -150,7 +149,7 @@ export function AuditPage() {
         }}
         {...view.tableProps}
         loading={loading}
-        headerTitle={"最近 200 条匹配记录 · 每 5 秒刷新"}
+        headerTitle={`最近 200 条匹配记录 · ${error ? "更新失败，正在重试" : "每 5 秒自动更新"}`}
         toolBarRender={() => [
           <ToolbarIconAction
             key="refresh"

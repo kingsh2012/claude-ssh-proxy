@@ -36,7 +36,7 @@ Claude ───────────────────▶ proxy ──
 
 Windows 无法安装 OpenSSH 或不开放入站端口时，可运行单文件 `ops-ssh-agent.exe` 主动连接本代理。LLM 仍使用原来的 SSH 登录名执行 PowerShell、读取日志；认证、后台和审计继续复用。
 
-- 在后台“服务设置”生成统一的自注册 Token，首次设置连接地址和默认客户端凭据，多台 Windows 共用。
+- 在后台“服务设置”生成统一的自注册 Token，先保存公网连接地址，再随机生成密钥并保存；主机注册后手动授权，多台 Windows 共用。
 - Windows 执行 `ops-ssh-agent.exe -token '自注册Token' [-hostname '代理登录名']`，按本机主机名自动注册，无需预建服务器、填写 ID 或配置文件。
 - Agent 通过 WSS 连接 `/agent`；不需要 NATS。
 - 首版支持非交互命令，每台设备一个任务，最长 5 分钟；暂不支持 SFTP、PTY、stdin 和端口转发。

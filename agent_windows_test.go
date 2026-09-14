@@ -53,6 +53,14 @@ func TestSharedWindowsAgentCustomNameReadsFileThroughSSH(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	client, err := ssh.Dial("tcp", p.listener.Addr().String(), &ssh.ClientConfig{User: "es-custom-login", Auth: []ssh.AuthMethod{ssh.Password("test-password")}, HostKeyCallback: ssh.FixedHostKey(p.hostSigner.PublicKey()), Timeout: 3 * time.Second})
+	if err == nil {
+		client.Close()
+		t.Fatal("newly registered host allowed SSH before manual authorization")
+	}
+	if err := p.store.UpdateClientCredential(cid, ClientCredential{Label: "LLM", AuthType: "password", Password: "test-password"}, []string{"es-custom-login"}); err != nil {
+		t.Fatal(err)
+	}
+	client, err = ssh.Dial("tcp", p.listener.Addr().String(), &ssh.ClientConfig{User: "es-custom-login", Auth: []ssh.AuthMethod{ssh.Password("test-password")}, HostKeyCallback: ssh.FixedHostKey(p.hostSigner.PublicKey()), Timeout: 3 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

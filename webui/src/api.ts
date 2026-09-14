@@ -154,9 +154,20 @@ export const api = {
 
   getSelfRegistration: () =>
     request<SelfRegistration>("/api/settings/agent-registration"),
+  saveRegistrationAddress: (serverURL: string) =>
+    request<SelfRegistration>("/api/settings/agent-registration/address", {
+      method: "PUT",
+      body: JSON.stringify({ server_url: serverURL }),
+    }),
+  generateSelfRegistration: (serverURL: string) =>
+    request<{ token: string }>("/api/settings/agent-registration/generate", {
+      method: "POST",
+      body: JSON.stringify({ server_url: serverURL }),
+    }),
   putSelfRegistration: (body: {
+    token?: string;
     server_url: string;
-    client_credential_ids: number[];
+    client_credential_ids?: number[];
   }) =>
     request<SelfRegistration>("/api/settings/agent-registration", {
       method: "PUT",

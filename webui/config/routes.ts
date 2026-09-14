@@ -3,7 +3,7 @@ export default [
     path: "/",
     component: "@/layouts/Console",
     routes: [
-      { path: "/servers", component: "@/pages/ServersPage", name: "服务器" },
+      { path: "/servers", component: "@/pages/ServersPage", name: "服务器列表" },
       {
         path: "/server-credentials",
         component: "@/pages/ServerCredentialsPage",

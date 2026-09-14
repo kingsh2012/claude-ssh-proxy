@@ -289,3 +289,14 @@ Remove-Item -LiteralPath 'Cert:\CurrentUser\Root\55C80A83352F2133B05F832AA9E2921
 - Token 格式、WebSocket 子协议、认证 Cookie、接口及数据库结构不变；旧 Windows 客户端与现有 Token 继续兼容。新客户端使用 `aiagent-ssh-client.exe -token '完整Token' [-hostname '代理登录名']`。
 - 全新安装默认目录 `/data/aiagent-ssh-proxy`，服务 `aiagent-ssh-proxy.service`。现有部署不能直接套用默认路径：迁移前备份原程序、unit、数据库及 `.db.key`、host key，读取旧 unit 的真实参数；新 unit 继续指向原数据库与密钥、保持原监听地址，再停止旧服务、启用新服务。
 - 检测到旧 `ops-ssh-proxy` 或 `claude-ssh-proxy` 服务/数据时，通用安装脚本会阻止当作全新安装；命令行发现旧默认数据库时要求显式传 `-db`。正式迁移另行按实际部署执行，历史记录不代表已迁移。
+
+
+## v0.0.33 更名发布与迁移（2026-09-14）
+
+- 已部署到 `192.168.102.7:8080`，代码提交 `1fb7dee`。项目/服务端为 `aiagent-ssh-proxy`，客户端为 `aiagent-ssh-client.exe`；已更新 README、构建产物和发布流程，移除紫色 favicon。
+- [正式发布](https://github.com/kingsh2012/claude-ssh-proxy/releases/tag/v0.0.33)；[CI](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34820056978) 和 [Release](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34820057625) 均成功。
+- 当前服务 `aiagent-ssh-proxy.service` active/running、enabled，NRestarts=0；程序 `/usr/local/bin/aiagent-ssh-proxy`。旧 `ops-ssh-proxy.service` inactive/disabled，旧程序和 unit 保留用于回退。
+- 数据仍使用 `/data/claude-ssh-proxy/claude-ssh-proxy.db` 及原 `.db.key`、`host_key`，监听保持 Web 8080、SSH 2222。40 台主机、41 条授权、1655 条审计及其他原有数据逐项保留，数据库完整性/外键、密钥哈希检查通过。
+- 备份：`/data/claude-ssh-proxy/20260914-v0.0.33-deploy-a086agb6/production-backup`；服务端 SHA256：`e71242eb2d7a04d934938aa6b999478737209018e7669ca3916e2d2d416bc7ce`。
+- 正式静态资源与模拟 API 验证新标题/新客户端命令/空 favicon，以及搜索、HTTPS 地址、高级箭头、审计弹窗回归；未修改生产业务数据。本机正式产物及验证记录位于 `dist/20260914-v0.0.33/`。
+- 本次是更名发布，不包含公网登录加固。限流、JWT 撤销和 HTTP 请求限制等已核查缺口见根 README 的公网部署边界。

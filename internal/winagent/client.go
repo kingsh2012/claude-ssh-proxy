@@ -57,7 +57,7 @@ func ValidateConfig(c Config) error {
 		return errors.New("-hostname 只能包含字母、数字、点、短横线和下划线，且以字母或数字开头，最多 253 字符")
 	}
 	if !agentwire.ValidServerURL(c.ServerURL) || c.ID < 0 || len(c.Token) != 64 {
-		return errors.New("需要有效 WSS 地址及设备凭据")
+		return errors.New("需要有效 WSS 地址及设备凭证")
 	}
 	return nil
 }

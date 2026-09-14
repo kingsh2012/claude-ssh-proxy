@@ -71,7 +71,7 @@ export function ServerCredentialsPage() {
     const payload = { ...editing, ...values };
     setError("");
 
-    // 取消勾选的服务器会失去这份凭据、认证方式变空,需要之后单独重新设置,先提醒一下。
+    // 取消勾选的服务器会失去这份凭证、认证方式变空,需要之后单独重新设置,先提醒一下。
     if (editing.id != null) {
       const before = creds.find((c) => c.id === editing.id);
       const removed = (before?.proxy_users ?? []).filter(
@@ -79,7 +79,7 @@ export function ServerCredentialsPage() {
       );
       if (removed.length > 0) {
         const ok = await confirm(
-          `取消勾选后,${removed.join(", ")} 会失去这份凭据,认证方式变空,需要单独重新设置密码/私钥或换一份凭据,确定继续吗?`,
+          `取消勾选后,${removed.join(", ")} 会失去这份凭证,认证方式变空,需要单独重新设置密码/私钥或换一份凭证,确定继续吗?`,
         );
         if (!ok) return false;
       }
@@ -101,7 +101,7 @@ export function ServerCredentialsPage() {
   }
 
   async function remove(id: number, label: string) {
-    if (!(await confirm(`确定删除服务器凭据 "${label}" 吗?`))) return;
+    if (!(await confirm(`确定删除服务器凭证 "${label}" 吗?`))) return;
     try {
       await api.deleteServerCredential(id);
       await load();
@@ -147,7 +147,7 @@ export function ServerCredentialsPage() {
               items: [
                 {
                   key: "delete",
-                  label: "删除服务器凭据",
+                  label: "删除服务器凭证",
                   danger: true,
                   onClick: () => remove(c.id, c.label),
                 },
@@ -172,7 +172,7 @@ export function ServerCredentialsPage() {
       title={false}
       ghost
       style={{ padding: 0 }}
-      breadcrumb={{ items: [{ title: "运维管理" }, { title: "服务器凭据" }] }}
+      breadcrumb={{ items: [{ title: "运维管理" }, { title: "服务器凭证" }] }}
     >
       {error && !editing && (
         <p role="alert" className="mb-3 text-red-600">
@@ -185,10 +185,10 @@ export function ServerCredentialsPage() {
 
         {...view.tableProps}
         loading={loading}
-        headerTitle={"服务器凭据"}
+        headerTitle={"服务器凭证"}
         toolBarRender={() => [
           <Button key="create" type="primary" onClick={startCreate}>
-            新建服务器凭据
+            新建
           </Button>,
           <ToolbarIconAction
             key="refresh"

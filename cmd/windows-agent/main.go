@@ -15,7 +15,7 @@ import (
 func main() {
 	path := flag.String("config", "", "可选：读取旧 TOML 配置")
 	token := flag.String("token", "", "服务设置中的自注册 Token")
-	server := flag.String("server", "", "可选：覆盖 WSS 地址，或与旧设备凭据配合使用")
+	server := flag.String("server", "", "可选：覆盖 WSS 地址，或与旧设备凭证配合使用")
 	hostname := flag.String("hostname", "", "可选：指定代理登录名，默认使用 Windows 主机名")
 	flag.Parse()
 	if runtime.GOOS != "windows" {

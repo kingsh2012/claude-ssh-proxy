@@ -33,7 +33,7 @@ export function ServerCredentialForm({
     <ModalForm<ServerValues>
       key={initial.id ?? "new"}
       open
-      title={edit ? "编辑服务器凭据" : "新建服务器凭据"}
+      title={edit ? "编辑服务器凭证" : "新建服务器凭证"}
       width={520}
       autoComplete="off"
       initialValues={initial}
@@ -50,7 +50,7 @@ export function ServerCredentialForm({
       <ProFormText
         name="label"
         label="名称"
-        placeholder="请输入凭据名称"
+        placeholder="请输入凭证名称"
         rules={required("名称")}
       />
       <ProFormText
@@ -132,7 +132,7 @@ export function ClientCredentialForm({
     <ModalForm<ClientValues>
       key={initial.id ?? "new"}
       open
-      title={edit ? "编辑客户端凭据" : "新建客户端凭据"}
+      title={edit ? "编辑客户端凭证" : "新建客户端凭证"}
       width={520}
       autoComplete="off"
       initialValues={initial}
@@ -159,7 +159,7 @@ export function ClientCredentialForm({
       <ProFormText
         name="label"
         label="名称"
-        placeholder="请输入凭据名称"
+        placeholder="请输入凭证名称"
         rules={required("名称")}
       />
       <ProFormSelect

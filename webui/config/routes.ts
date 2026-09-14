@@ -7,12 +7,12 @@ export default [
       {
         path: "/server-credentials",
         component: "@/pages/ServerCredentialsPage",
-        name: "服务器凭据",
+        name: "服务器凭证",
       },
       {
         path: "/client-credentials",
         component: "@/pages/ClientCredentialsPage",
-        name: "客户端凭据",
+        name: "客户端凭证",
       },
       {
         path: "/connections",

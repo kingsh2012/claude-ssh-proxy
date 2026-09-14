@@ -26,7 +26,7 @@ export interface ServerRecord {
   last_test_ok: boolean | null;
   last_test_error?: string;
 
-  // 认证信息(目标用户名/密码/私钥)完全来自关联的"服务器凭据",这几个字段都是只读展示,
+  // 认证信息(目标用户名/密码/私钥)完全来自关联的"服务器凭证",这几个字段都是只读展示,
   // 不能通过表单直接编辑。server_credential_id 留空表示这条服务器暂时没有可用的认证信息。
   target_user?: string;
   auth_type?: AuthType;

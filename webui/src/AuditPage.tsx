@@ -70,7 +70,7 @@ export function AuditPage() {
       width: 180,
     },
     {
-      title: "客户端凭据",
+      title: "客户端凭证",
       dataIndex: "client_credential_label",
       filterDropdown: TextColumnFilter,
       width: 170,

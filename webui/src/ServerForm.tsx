@@ -52,7 +52,7 @@ export function ServerForm({
       />
       {agent ? (
         <Typography.Paragraph type="secondary">
-          此主机由 Agent 自动注册，可调整访问凭据。
+          此主机由 Agent 自动注册，可调整访问凭证。
         </Typography.Paragraph>
       ) : (
         <>
@@ -106,8 +106,8 @@ export function ServerForm({
           </ProFormDependency>
           <ProFormSelect
             name="server_credential_id"
-            label="服务器凭据"
-            placeholder="选择服务器凭据"
+            label="服务器凭证"
+            placeholder="选择服务器凭证"
             options={serverCredentials.map((c) => ({
               label: `${c.label} · ${c.target_user}`,
               value: c.id,
@@ -119,9 +119,9 @@ export function ServerForm({
       )}
       <ProFormSelect
         name="credentialIds"
-        label="客户端凭据"
+        label="客户端凭证"
         mode="multiple"
-        placeholder="选择客户端凭据"
+        placeholder="选择客户端凭证"
         options={clientCredentials.map((c) => ({
           label: c.label,
           value: c.id,

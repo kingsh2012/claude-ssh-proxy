@@ -39,7 +39,7 @@ export function ConnectionsPage() {
   const columns: ProColumns<ActiveConnection>[] = [
     { title: "代理登录名", dataIndex: "proxy_user", width: 180 },
     {
-      title: "客户端凭据",
+      title: "客户端凭证",
       dataIndex: "client_credential_label",
       width: 180,
       render: (v) => v || "—",

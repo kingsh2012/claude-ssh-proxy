@@ -9,7 +9,7 @@ import (
 )
 
 // buildPublicKeyCallback 每次认证尝试都查库:根据登录用户名找到服务器(必须存在且启用),
-// 再看关联到这台服务器的客户端凭据(client_credentials,多对多关系)里有没有公钥类型匹配的。
+// 再看关联到这台服务器的客户端凭证(client_credentials,多对多关系)里有没有公钥类型匹配的。
 func buildPublicKeyCallback(store *Store) func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 	return func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 		user := conn.User()
@@ -39,7 +39,7 @@ func buildPublicKeyCallback(store *Store) func(conn ssh.ConnMetadata, key ssh.Pu
 	}
 }
 
-// buildPasswordCallback 是公钥认证之外的备用登录方式:关联到这台服务器的客户端凭据里,
+// buildPasswordCallback 是公钥认证之外的备用登录方式:关联到这台服务器的客户端凭证里,
 // 密码类型的任意一份匹配即可登录(用户名仍然决定转发到哪台目标机器)。
 func buildPasswordCallback(store *Store) func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
 	return func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {

@@ -51,12 +51,12 @@ const emptyServer: ServerRecord = {
   server_credential_id: null,
 };
 
-// reconcileClientCredentials 把"这个代理登录名应该关联哪些客户端凭据"落地成实际的 API 调用:
-// 对比每份客户端凭据当前的 proxy_users 和期望的勾选结果,只在有变化的凭据上调用更新接口。
+// reconcileClientCredentials 把"这个代理登录名应该关联哪些客户端凭证"落地成实际的 API 调用:
+// 对比每份客户端凭证当前的 proxy_users 和期望的勾选结果,只在有变化的凭证上调用更新接口。
 // save() 和 CSV 导入(逐行调用)都用这个函数,保证行为一致。
 //
 // 注意:成功调用后会把 c.proxy_users 就地更新——批量导入时如果好几行服务器共用同一份
-// 客户端凭据,必须让后面几行看到前面几行刚写入的关联,否则会互相覆盖,只有最后一行生效。
+// 客户端凭证,必须让后面几行看到前面几行刚写入的关联,否则会互相覆盖,只有最后一行生效。
 async function reconcileClientCredentials(
   clientCredentials: ClientCredential[],
   proxyUser: string,
@@ -100,6 +100,44 @@ export function ServersPage() {
   const [testingServer, setTestingServer] = useState<string | null>(null);
   const [testingAll, setTestingAll] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [selectedServerIds, setSelectedServerIds] = useState<number[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  async function bulkAction(action: "disable" | "delete") {
+    if (bulkBusy) return;
+    const targets = servers.filter((server) => selectedServerIds.includes(server.id));
+    if (!targets.length) return;
+    const label = action === "delete" ? "删除" : "禁用";
+    setBulkBusy(true);
+    try {
+      if (!(await confirm(`确定${label}选中的 ${targets.length} 台服务器吗？${action === "delete" ? "删除后不可在页面恢复。" : "已禁用的服务器将跳过。"}\n${targets.map((server) => server.proxy_user).join("、")}`))) return;
+      const failed: number[] = [];
+      const failures: string[] = [];
+      for (const server of targets) {
+        try {
+          if (action === "delete") {
+            await api.deleteServer(server.proxy_user);
+            setServers((previous) => previous.filter((row) => row.id !== server.id));
+            setClientCredentials((previous) => previous.map((credential) => ({
+              ...credential, proxy_users: credential.proxy_users.filter((name) => name !== server.proxy_user),
+            })));
+          } else if (server.enabled) {
+            const updated = await api.setServerEnabled(server.proxy_user, false);
+            setServers((previous) => previous.map((row) => row.id === server.id ? updated : row));
+          }
+        } catch (err) {
+          failed.push(server.id);
+          failures.push(`${server.proxy_user}：${err instanceof ApiError ? err.message : "请求失败，请重试"}`);
+        }
+      }
+      setSelectedServerIds(failed);
+      const completed = targets.length - failed.length;
+      if (completed) success(`${completed} 台服务器已${label}`);
+      setError(failures.length ? `${failed.length} 台${label}失败：${failures.join("；")}` : "");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -110,6 +148,7 @@ export function ServersPage() {
         api.listClientCredentials(),
       ]);
       setServers(s ?? []);
+      setSelectedServerIds((ids) => ids.filter((id) => (s ?? []).some((server) => server.id === id)));
       setError("");
       setServerCredentials(sc ?? []);
       setClientCredentials(cc ?? []);
@@ -305,7 +344,7 @@ export function ServersPage() {
         ),
     },
     {
-      title: "访问凭据",
+      title: "访问凭证",
       key: "credentials",
       width: 270,
       render: (_, s) => (
@@ -338,19 +377,20 @@ export function ServersPage() {
       fixed: screens.md ? "right" : undefined,
       render: (_, s) => (
         <div className="row-actions">
-          <Button type="link" size="small" onClick={() => startEdit(s)}>
+          <Button type="link" size="small" disabled={bulkBusy} onClick={() => startEdit(s)}>
             编辑
           </Button>
           <Button
             type="link"
             size="small"
-            disabled={s.route_mode === "dynamic_port" || testingAll}
+            disabled={bulkBusy || s.route_mode === "dynamic_port" || testingAll}
             loading={testingServer === s.proxy_user}
             onClick={() => testOne(s.proxy_user)}
           >
             测试
           </Button>
           <Dropdown
+            disabled={bulkBusy}
             menu={{
               items: [
                 { key: "toggle", label: s.enabled ? "禁用" : "启用" },
@@ -405,8 +445,22 @@ export function ServersPage() {
         rowKey="id"
 
         {...view.tableProps}
+        rowSelection={{
+          selectedRowKeys: selectedServerIds,
+          preserveSelectedRowKeys: true,
+          onChange: (keys) => setSelectedServerIds(keys.map(Number)),
+          getCheckboxProps: () => ({ disabled: bulkBusy }),
+          columnWidth: 48,
+        }}
+        scroll={{ x: Number(view.tableProps.scroll.x) + 48 }}
+        tableAlertRender={() => `已选择 ${selectedServerIds.length} 台服务器（含其他分页和筛选前的选择）`}
+        tableAlertOptionRender={() => [
+          <Button key="disable" disabled={bulkBusy} onClick={() => void bulkAction("disable")}>批量禁用</Button>,
+          <Button key="delete" danger disabled={bulkBusy} onClick={() => void bulkAction("delete")}>批量删除</Button>,
+          <Button key="cancel" type="link" disabled={bulkBusy} onClick={() => setSelectedServerIds([])}>取消选择</Button>,
+        ]}
         rowClassName={(server) => server.enabled ? "" : "server-row-disabled"}
-        loading={loading}
+        loading={loading || bulkBusy}
         headerTitle={
           <ListToolbarSearch
             value={view.query}
@@ -415,17 +469,17 @@ export function ServersPage() {
           />
         }
         toolBarRender={() => [
-          <Button key="create" type="primary" onClick={startCreate}>
-            新建服务器
+          <Button key="create" disabled={bulkBusy} type="primary" onClick={startCreate}>
+            新建
           </Button>,
-          <Button key="import" onClick={() => setImporting(true)}>
+          <Button disabled={bulkBusy} key="import" onClick={() => setImporting(true)}>
             导入
           </Button>,
           <Button
             key="test"
             onClick={testAll}
             loading={testingAll}
-            disabled={!servers.length}
+            disabled={bulkBusy || !servers.length}
           >
             测试全部
           </Button>,
@@ -433,7 +487,7 @@ export function ServersPage() {
             key="refresh"
             label="刷新"
             icon={<RefreshIcon />}
-            disabled={loading}
+            disabled={loading || bulkBusy}
             onClick={() => {
               void load().catch(() => alert("刷新失败"));
             }}
@@ -658,7 +712,7 @@ function ImportModal({
     setErrors([]);
     setRunning(true);
 
-    // 拷贝一份客户端凭据快照,让整批导入过程中的 proxy_users 变化在批内累积、
+    // 拷贝一份客户端凭证快照,让整批导入过程中的 proxy_users 变化在批内累积、
     // 又不直接改动父组件的 state(reconcileClientCredentials 会就地更新这份拷贝)。
     const workingCredentials = clientCredentials.map((c) => ({
       ...c,
@@ -722,7 +776,7 @@ function ImportModal({
         <code className="rounded bg-slate-100 px-1 ">server_credential_id</code>
         /
         <code className="rounded bg-slate-100 px-1 ">client_credential_id</code>{" "}
-        可以留空,分别默认 22、不关联服务器凭据、不关联客户端凭据;
+        可以留空,分别默认 22、不关联服务器凭证、不关联客户端凭证;
         <code className="rounded bg-slate-100 px-1 ">
           client_credential_id
         </code>{" "}

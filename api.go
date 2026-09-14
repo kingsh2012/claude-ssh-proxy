@@ -281,11 +281,11 @@ func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 服务器的认证信息完全来自"服务器凭据",这里只要校验(如果指定了)凭据确实存在;
-	// 留空表示这条服务器暂时没有可用的认证信息,允许保存,之后再补一个凭据即可。
+	// 服务器的认证信息完全来自"服务器凭证",这里只要校验(如果指定了)凭证确实存在;
+	// 留空表示这条服务器暂时没有可用的认证信息,允许保存,之后再补一个凭证即可。
 	if server.ServerCredentialID != nil {
 		if _, err := a.store.GetServerCredential(*server.ServerCredentialID); err != nil {
-			writeError(w, http.StatusBadRequest, "指定的服务器凭据不存在")
+			writeError(w, http.StatusBadRequest, "指定的服务器凭证不存在")
 			return
 		}
 	}
@@ -487,7 +487,7 @@ func (a *API) handleUpdateServerCredential(w http.ResponseWriter, r *http.Reques
 	}
 	existing, err := a.store.GetServerCredential(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "服务器凭据不存在")
+		writeError(w, http.StatusNotFound, "服务器凭证不存在")
 		return
 	}
 	if err := validateServerCredentialAuth(&body, existing); err != nil {
@@ -527,7 +527,7 @@ func (a *API) handleListClientCredentials(w http.ResponseWriter, r *http.Request
 	writeJSON(w, creds)
 }
 
-// validateClientCredentialAuth 校验客户端凭据的 auth_type 和对应字段;公钥类型顺带校验公钥格式。
+// validateClientCredentialAuth 校验客户端凭证的 auth_type 和对应字段;公钥类型顺带校验公钥格式。
 func validateClientCredentialAuth(c *ClientCredential) error {
 	switch c.AuthType {
 	case "public_key":

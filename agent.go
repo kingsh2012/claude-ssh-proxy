@@ -148,13 +148,13 @@ func (a *API) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) {
 	}
 	b := make([]byte, 32)
 	if _, err = rand.Read(b); err != nil {
-		writeError(w, 500, "生成凭据失败")
+		writeError(w, 500, "生成凭证失败")
 		return
 	}
 	token := hex.EncodeToString(b)
 	hash := sha256.Sum256([]byte(token))
 	if _, err = a.store.db.Exec(`UPDATE servers SET agent_token_hash = ? WHERE id = ?`, hex.EncodeToString(hash[:]), s.ID); err != nil {
-		writeError(w, 500, "保存凭据失败")
+		writeError(w, 500, "保存凭证失败")
 		return
 	}
 	a.proxy.agents.Disconnect(s.ID)

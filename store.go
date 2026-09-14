@@ -49,12 +49,12 @@ func OpenStore(path string) (*Store, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		db.Close()
-		return nil, fmt.Errorf("初始化凭据加密失败: %w", err)
+		return nil, fmt.Errorf("初始化凭证加密失败: %w", err)
 	}
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
 		db.Close()
-		return nil, fmt.Errorf("初始化凭据加密失败: %w", err)
+		return nil, fmt.Errorf("初始化凭证加密失败: %w", err)
 	}
 
 	s := &Store{db: db, secretAEAD: aead}
@@ -97,7 +97,7 @@ func loadOrCreateSecretKey(dbPath string) ([]byte, error) {
 	key := make([]byte, 32)
 	if dbPath == ":memory:" || strings.HasPrefix(dbPath, "file::memory:") {
 		if _, err := rand.Read(key); err != nil {
-			return nil, fmt.Errorf("生成凭据加密密钥失败: %w", err)
+			return nil, fmt.Errorf("生成凭证加密密钥失败: %w", err)
 		}
 		return key, nil
 	}
@@ -105,21 +105,21 @@ func loadOrCreateSecretKey(dbPath string) ([]byte, error) {
 	data, err := os.ReadFile(keyPath)
 	if err == nil {
 		if len(data) != len(key) {
-			return nil, fmt.Errorf("凭据加密密钥 %s 长度无效", keyPath)
+			return nil, fmt.Errorf("凭证加密密钥 %s 长度无效", keyPath)
 		}
 		if err := os.Chmod(keyPath, 0600); err != nil {
-			return nil, fmt.Errorf("收紧凭据加密密钥权限失败: %w", err)
+			return nil, fmt.Errorf("收紧凭证加密密钥权限失败: %w", err)
 		}
 		return data, nil
 	}
 	if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("读取凭据加密密钥失败: %w", err)
+		return nil, fmt.Errorf("读取凭证加密密钥失败: %w", err)
 	}
 	if _, err := rand.Read(key); err != nil {
-		return nil, fmt.Errorf("生成凭据加密密钥失败: %w", err)
+		return nil, fmt.Errorf("生成凭证加密密钥失败: %w", err)
 	}
 	if err := os.WriteFile(keyPath, key, 0600); err != nil {
-		return nil, fmt.Errorf("写入凭据加密密钥失败: %w", err)
+		return nil, fmt.Errorf("写入凭证加密密钥失败: %w", err)
 	}
 	return key, nil
 }
@@ -147,12 +147,12 @@ func (s *Store) decryptSecret(value string) (string, error) {
 	}
 	sealed, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(value, encryptedSecretPrefix))
 	if err != nil || len(sealed) < s.secretAEAD.NonceSize() {
-		return "", fmt.Errorf("凭据密文格式无效")
+		return "", fmt.Errorf("凭证密文格式无效")
 	}
 	nonce := sealed[:s.secretAEAD.NonceSize()]
 	plaintext, err := s.secretAEAD.Open(nil, nonce, sealed[s.secretAEAD.NonceSize():], []byte(encryptedSecretPrefix))
 	if err != nil {
-		return "", fmt.Errorf("凭据解密失败: %w", err)
+		return "", fmt.Errorf("凭证解密失败: %w", err)
 	}
 	return string(plaintext), nil
 }
@@ -526,7 +526,7 @@ type ServerRecord struct {
 	PortMin        int    `json:"port_min"`
 	PortMax        int    `json:"port_max"`
 
-	// 下面这些认证相关字段都是只读的,完全来自关联的"服务器凭据"(见 ServerCredentialID),
+	// 下面这些认证相关字段都是只读的,完全来自关联的"服务器凭证"(见 ServerCredentialID),
 	// 不能通过 UpsertServer 直接设置;服务器本身不再存密码/私钥/目标用户名。
 	TargetUser               string `json:"target_user,omitempty"`
 	AuthType                 string `json:"auth_type,omitempty"`
@@ -534,7 +534,7 @@ type ServerRecord struct {
 	AuthPrivateKey           string `json:"auth_private_key,omitempty"`
 	AuthPrivateKeyPassphrase string `json:"auth_private_key_passphrase,omitempty"`
 
-	// 是否允许连接;禁用后,不管客户端凭据/共享凭据对不对,一律拒绝这个别名的登录。
+	// 是否允许连接;禁用后,不管客户端凭证/共享凭证对不对,一律拒绝这个别名的登录。
 	Enabled bool `json:"enabled"`
 
 	// 兼容旧设备:部分老旧交换机等设备只支持过时的弱加密算法(如 aes128-cbc、3des-cbc、
@@ -544,7 +544,7 @@ type ServerRecord struct {
 	LegacyAlgorithms   bool   `json:"legacy_algorithms"`
 	HostKeyFingerprint string `json:"host_key_fingerprint,omitempty"`
 
-	// 只读,展示当前有哪些客户端凭据关联到了这条服务器;凭据本身在"客户端凭据"页面管理。
+	// 只读,展示当前有哪些客户端凭证关联到了这条服务器;凭证本身在"客户端凭证"页面管理。
 	ClientCredentialLabels []string `json:"client_credential_labels"`
 
 	// 只读,最近一次"测试 SSH 连接"的结果。
@@ -552,7 +552,7 @@ type ServerRecord struct {
 	LastTestOK    *bool      `json:"last_test_ok"`
 	LastTestError string     `json:"last_test_error,omitempty"`
 
-	// 连目标机器必须指定一个"服务器凭据"(server_credentials 表,包含目标用户名+密码/私钥),
+	// 连目标机器必须指定一个"服务器凭证"(server_credentials 表,包含目标用户名+密码/私钥),
 	// 多台服务器可以共用同一份、改一处全部生效。留空表示这条服务器暂时没有可用的认证信息。
 	ServerCredentialID    *int64 `json:"server_credential_id"`
 	ServerCredentialLabel string `json:"server_credential_label,omitempty"` // 只读
@@ -588,9 +588,9 @@ func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
 	return r, nil
 }
 
-// resolveServerCredential 把这条服务器关联的"服务器凭据"里的目标用户名/密码/私钥读出来,
-// 填进 ServerRecord 的只读字段,供拨号连接和 Web API 展示使用。没关联凭据时这些字段留空,
-// 服务器处于"暂不可连接"的状态,需要去编辑指定一个凭据。
+// resolveServerCredential 把这条服务器关联的"服务器凭证"里的目标用户名/密码/私钥读出来,
+// 填进 ServerRecord 的只读字段,供拨号连接和 Web API 展示使用。没关联凭证时这些字段留空,
+// 服务器处于"暂不可连接"的状态,需要去编辑指定一个凭证。
 func (s *Store) resolveServerCredential(r *ServerRecord) error {
 	if r.ConnectionType == "agent" || r.ServerCredentialID == nil {
 		return nil
@@ -601,22 +601,22 @@ func (s *Store) resolveServerCredential(r *ServerRecord) error {
 		FROM server_credentials WHERE id = ?`, *r.ServerCredentialID).
 		Scan(&label, &targetUser, &authType, &pw, &pk, &pp)
 	if err != nil {
-		return fmt.Errorf("共享凭据 %d 不存在: %w", *r.ServerCredentialID, err)
+		return fmt.Errorf("共享凭证 %d 不存在: %w", *r.ServerCredentialID, err)
 	}
 	r.ServerCredentialLabel = label
 	r.TargetUser = targetUser
 	r.AuthType = authType
 	r.AuthPassword, err = s.decryptSecret(pw.String)
 	if err != nil {
-		return fmt.Errorf("解密服务器凭据 %d 的密码失败: %w", *r.ServerCredentialID, err)
+		return fmt.Errorf("解密服务器凭证 %d 的密码失败: %w", *r.ServerCredentialID, err)
 	}
 	r.AuthPrivateKey, err = s.decryptSecret(pk.String)
 	if err != nil {
-		return fmt.Errorf("解密服务器凭据 %d 的私钥失败: %w", *r.ServerCredentialID, err)
+		return fmt.Errorf("解密服务器凭证 %d 的私钥失败: %w", *r.ServerCredentialID, err)
 	}
 	r.AuthPrivateKeyPassphrase, err = s.decryptSecret(pp.String)
 	if err != nil {
-		return fmt.Errorf("解密服务器凭据 %d 的私钥密码失败: %w", *r.ServerCredentialID, err)
+		return fmt.Errorf("解密服务器凭证 %d 的私钥密码失败: %w", *r.ServerCredentialID, err)
 	}
 	return nil
 }
@@ -792,7 +792,7 @@ func (s *Store) UpsertServer(r ServerRecord) error {
 }
 
 // SetServerEnabled 启用/禁用一条服务器;禁用后 proxy 会在认证阶段直接拒绝这个别名的登录,
-// 不管客户端凭据或共享凭据是否匹配。
+// 不管客户端凭证或共享凭证是否匹配。
 func (s *Store) SetServerEnabled(proxyUser string, enabled bool) error {
 	res, err := s.db.Exec(`UPDATE servers SET enabled = ? WHERE proxy_user = ?`, boolToInt(enabled), proxyUser)
 	if err != nil {
@@ -816,11 +816,11 @@ func (s *Store) UpdateServerTestResult(proxyUser string, ok bool, testErr string
 	return err
 }
 
-// ---------- 服务器凭据(server_credentials) ----------
+// ---------- 服务器凭证(server_credentials) ----------
 
 // ServerCredential 是一份命名的、可以被多台服务器共用的后端认证信息(密码或私钥)。
 // 很多服务器用同一套密码/私钥登录时,不用在每台服务器里各存一份,改一处、所有引用它的
-// 服务器都跟着生效。ProxyUsers 是只读字段,展示当前有哪些服务器在用这份凭据。
+// 服务器都跟着生效。ProxyUsers 是只读字段,展示当前有哪些服务器在用这份凭证。
 type ServerCredential struct {
 	ID                       int64    `json:"id"`
 	Label                    string   `json:"label"`
@@ -963,12 +963,12 @@ func (s *Store) UpdateServerCredential(id int64, c ServerCredential) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("服务器凭据 %d 不存在", id)
+		return fmt.Errorf("服务器凭证 %d 不存在", id)
 	}
 	return nil
 }
 
-// DeleteServerCredential 删除前检查有没有服务器还在用这份凭据,有的话拒绝删除,
+// DeleteServerCredential 删除前检查有没有服务器还在用这份凭证,有的话拒绝删除,
 // 避免这些服务器突然失去认证信息、连不上。
 func (s *Store) DeleteServerCredential(id int64) error {
 	proxyUsers, err := s.listServersUsingServerCredential(id)
@@ -976,16 +976,16 @@ func (s *Store) DeleteServerCredential(id int64) error {
 		return err
 	}
 	if len(proxyUsers) > 0 {
-		return fmt.Errorf("还有 %d 台服务器在使用这份凭据(%s),请先改成其他凭据或单独指定认证方式,再删除",
+		return fmt.Errorf("还有 %d 台服务器在使用这份凭证(%s),请先改成其他凭证或单独指定认证方式,再删除",
 			len(proxyUsers), strings.Join(proxyUsers, ", "))
 	}
 	_, err = s.db.Exec(`DELETE FROM server_credentials WHERE id = ?`, id)
 	return err
 }
 
-// SetServerCredentialServers 让"哪些服务器使用这份凭据"变成刚好是 proxyUsers 这个列表:
+// SetServerCredentialServers 让"哪些服务器使用这份凭证"变成刚好是 proxyUsers 这个列表:
 // 不在列表里但之前用着的服务器会被解除关联(server_credential_id 置空),这些服务器的
-// auth_password/auth_private_key 之前用共享凭据时就是空的,解除后需要单独重新设置认证方式。
+// auth_password/auth_private_key 之前用共享凭证时就是空的,解除后需要单独重新设置认证方式。
 func (s *Store) SetServerCredentialServers(credID int64, proxyUsers []string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -1008,11 +1008,11 @@ func (s *Store) SetServerCredentialServers(credID int64, proxyUsers []string) er
 	return tx.Commit()
 }
 
-// ---------- 客户端凭据(client_credentials) ----------
+// ---------- 客户端凭证(client_credentials) ----------
 
 // ClientCredential 是一个命名的客户端身份(比如某个 Claude Agent),认证方式是公钥或密码,
-// 通过 ProxyUsers 关联到它能登录哪些服务器,多对多关系:一份凭据可以关联多台服务器,
-// 一台服务器也可以被多份凭据共用,任一凭据匹配即可登录。
+// 通过 ProxyUsers 关联到它能登录哪些服务器,多对多关系:一份凭证可以关联多台服务器,
+// 一台服务器也可以被多份凭证共用,任一凭证匹配即可登录。
 type ClientCredential struct {
 	ID          int64    `json:"id"`
 	Label       string   `json:"label"`
@@ -1096,7 +1096,7 @@ func (s *Store) listServersForClientCredential(id int64) ([]string, error) {
 	return out, nil
 }
 
-// ListClientCredentialsForServer 返回关联到某个服务器的所有客户端凭据,供登录认证时比对使用
+// ListClientCredentialsForServer 返回关联到某个服务器的所有客户端凭证,供登录认证时比对使用
 // (公钥类型比对 PublicKey,密码类型比对内部的 passwordHash)。
 func (s *Store) ListClientCredentialsForServer(proxyUser string) ([]ClientCredential, error) {
 	server, err := s.ResolveServer(proxyUser)
@@ -1158,7 +1158,7 @@ func (s *Store) CreateClientCredential(c ClientCredential, proxyUsers []string) 
 func (s *Store) UpdateClientCredential(id int64, c ClientCredential, proxyUsers []string) error {
 	existing, err := s.GetClientCredential(id)
 	if err != nil {
-		return fmt.Errorf("客户端凭据 %d 不存在", id)
+		return fmt.Errorf("客户端凭证 %d 不存在", id)
 	}
 	pubKey, pwHash, err := clientCredentialAuthColumns(c, existing)
 	if err != nil {
@@ -1177,7 +1177,7 @@ func (s *Store) UpdateClientCredential(id int64, c ClientCredential, proxyUsers 
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("客户端凭据 %d 不存在", id)
+		return fmt.Errorf("客户端凭证 %d 不存在", id)
 	}
 
 	if _, err := tx.Exec(`DELETE FROM server_client_credentials WHERE client_credential_id = ?`, id); err != nil {

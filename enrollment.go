@@ -58,7 +58,7 @@ func (a *API) handleCreateEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !agentwire.ValidServerURL(body.ServerURL) || len(body.Label) > 120 || len(body.Credentials) == 0 || len(body.Credentials) > 64 {
-		writeError(w, 400, "请填写有效 WSS 地址，并选择至少一份客户端凭据")
+		writeError(w, 400, "请填写有效 WSS 地址，并选择至少一份客户端凭证")
 		return
 	}
 	if body.Label == "" {
@@ -94,7 +94,7 @@ func (a *API) handleCreateEnrollment(w http.ResponseWriter, r *http.Request) {
 		}
 		seen[cid] = true
 		if _, err = tx.Exec(`INSERT INTO agent_enrollment_credentials(enrollment_id,client_credential_id) VALUES(?,?)`, id, cid); err != nil {
-			writeError(w, 400, "选择的客户端凭据不存在")
+			writeError(w, 400, "选择的客户端凭证不存在")
 			return
 		}
 	}

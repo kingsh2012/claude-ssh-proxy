@@ -85,7 +85,7 @@ export function ClientCredentialsPage() {
   async function remove(id: number, label: string) {
     if (
       !(await confirm(
-        `确定删除客户端凭据 "${label}" 吗?删除后所有关联它的服务器都会失去这份凭据的登录权限。`,
+        `确定删除客户端凭证 "${label}" 吗?删除后所有关联它的服务器都会失去这份凭证的登录权限。`,
       ))
     )
       return;
@@ -134,7 +134,7 @@ export function ClientCredentialsPage() {
               items: [
                 {
                   key: "delete",
-                  label: "删除客户端凭据",
+                  label: "删除客户端凭证",
                   danger: true,
                   onClick: () => remove(c.id, c.label),
                 },
@@ -159,7 +159,7 @@ export function ClientCredentialsPage() {
       title={false}
       ghost
       style={{ padding: 0 }}
-      breadcrumb={{ items: [{ title: "运维管理" }, { title: "客户端凭据" }] }}
+      breadcrumb={{ items: [{ title: "运维管理" }, { title: "客户端凭证" }] }}
     >
       {error && !editing && (
         <p role="alert" className="mb-3 text-red-600">
@@ -172,10 +172,10 @@ export function ClientCredentialsPage() {
 
         {...view.tableProps}
         loading={loading}
-        headerTitle={"客户端凭据"}
+        headerTitle={"客户端凭证"}
         toolBarRender={() => [
           <Button key="create" type="primary" onClick={startCreate}>
-            新建客户端凭据
+            新建
           </Button>,
           <ToolbarIconAction
             key="refresh"

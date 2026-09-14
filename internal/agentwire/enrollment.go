@@ -28,7 +28,7 @@ func ParseEnrollmentToken(token string) (serverURL, secret string, err error) {
 	server, decodeErr := base64.RawURLEncoding.DecodeString(parts[1])
 	key, keyErr := hex.DecodeString(parts[2])
 	if decodeErr != nil || !ValidServerURL(string(server)) || keyErr != nil || len(key) != 32 {
-		return "", "", errors.New("接入 Token 地址或凭据无效")
+		return "", "", errors.New("接入 Token 地址或凭证无效")
 	}
 	return string(server), parts[2], nil
 }

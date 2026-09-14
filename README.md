@@ -1,261 +1,48 @@
 # aiagent-ssh-proxy
 
-更新日期：2026-09-14。原项目名为 `ops-ssh-proxy`；历史 GitHub 仓库地址仍沿用 `claude-ssh-proxy`。
+为 AI Agent 提供统一 SSH 入口的运维代理。集中管理服务器和访问凭证，按代理登录名连接目标主机，并记录命令与会话审计。
 
-一个给 AI Agent(如 Claude)使用的 SSH 反向代理:Agent 用一个代理登录名连接到 proxy,proxy 校验身份后自动路由、连接到真正的目标机器,并把 Agent 在会话里执行的操作记录成审计日志。同时内置一个 Ant Design Pro 精简版 Web 管理后台,用来维护路由、监听地址和查看审计记录。
+支持直接连接 SSH 服务器，也支持 Windows 客户端主动接入，无需在 Windows 上安装 OpenSSH 或开放入站端口。
 
-## 解决什么问题
+## 架构设计
 
-直接把 SSH 私钥/密码交给 AI Agent、让它一台台机器手动连,会有几个问题:
-
-- 每台机器的地址、密钥、跳板机配置分散,Agent 每次都要自己拼
-- 密码认证还要靠 `sshpass`,密码容易明文出现在进程列表、日志、对话上下文里
-- 没有集中的操作审计,不知道 Agent 具体执行了什么命令
-
-`aiagent-ssh-proxy` 把这些收敛到一层:
-
-- Agent 只需要知道一个"代理登录名"(比如 `abc`),不需要知道真实的目标 IP、账号、密码/私钥
-- 代理登录名到目标机器的映射、目标机器的认证信息,统一在 Web 后台配置和保管
-- 每一次 `exec`/`shell`/`subsystem` 操作都会记录:来源 IP、代理登录名、目标机器、具体命令或会话内容、退出码
-
-## 架构
-
-```
-        SSH(公钥或密码)              SSH(密码或私钥,由 proxy 保管)
-Claude ───────────────────▶ proxy ───────────────────────────▶ 目标机器 1
-                              │
-                              └──────────────────────────────▶ 目标机器 2
-                                                                  ...
+```mermaid
+flowchart LR
+    AI[AI Agent / SSH 客户端] -->|SSH：代理登录名| Proxy[aiagent-ssh-proxy]
+    Proxy -->|SSH| Linux[SSH 服务器]
+    Windows[Windows：aiagent-ssh-client.exe] -->|主动建立 WSS 连接| Proxy
+    Admin[管理员] -->|HTTPS| Web[Web 管理后台]
+    Web --> Proxy
+    Proxy --> DB[(SQLite：配置、凭证、审计)]
 ```
 
-- Agent 登录 proxy 时使用的用户名是一个"代理登录名",与目标机器上的真实用户名无关
-- 客户端凭证(公钥或密码)是独立管理的"身份"(比如某个 Claude Agent),和服务器是多对多关系:一份凭证可以关联多台服务器,一台服务器也可以被多份凭证共用,任一凭证匹配即可登录;两个方向都能编辑关联关系(服务器页面勾选凭证,或者凭证页面勾选服务器)
-- proxy 连目标机器要用的信息(SSH登录名 + 密码/私钥)都收在"服务器凭证"里,一份凭证可以被多台服务器共用,改一处、全部生效;服务器本身不再单独存密码/私钥
-- 每台服务器可以单独启用/禁用;禁用后不管客户端凭证对不对,一律拒绝这个代理登录名登录,不用删掉配置就能临时"拔网线"
-- 所有配置(路由、服务器凭证、客户端凭证、管理员账号、审计日志)存在 SQLite 数据库里,服务器密码/私钥使用独立密钥加密保存;改配置即时生效,不需要重启 SSH 监听(除非改的是监听地址本身)
+- **统一入口**：客户端使用代理登录名访问主机，代理验证客户端凭证及主机授权后转发请求。
+- **SSH 接入**：代理使用服务器凭证连接目标机器，AI Agent 无需持有目标机器的密码或私钥。
+- **Windows 接入**：客户端通过 HTTPS 入口建立 `/agent` WebSocket 连接，接收命令并返回 PowerShell 执行结果。
+- **集中管理**：内置 Ant Design Pro 管理后台，支持服务器、凭证、当前连接、审计日志和服务设置。
+- **数据存储**：使用 SQLite 保存配置和审计；服务器密码、私钥使用 AES-GCM 加密，备份时需同时保留数据库和配套密钥文件。
 
-## Windows 主动接入
+## Windows 客户端
 
-Windows 无法安装 OpenSSH 或不开放入站端口时，可运行单文件 `aiagent-ssh-client.exe` 主动连接本代理。LLM 仍使用原来的 SSH 登录名执行 PowerShell、读取日志；认证、后台和审计继续复用。
+在“服务设置”保存公网 HTTPS 地址，生成并保存自注册 Token，然后在 Windows 上运行：
 
-- 在后台“服务设置”生成统一的自注册 Token，先保存公网连接地址，再随机生成密钥并保存；主机注册后手动授权，多台 Windows 共用。
-- Windows 执行 `aiagent-ssh-client.exe -token '自注册Token' [-hostname '代理登录名']`，按本机主机名自动注册，无需预建服务器、填写 ID 或配置文件。
-- 公网地址只填写 `https://proxy.example.com`，先点“保存地址”，再点“随机生成密钥”和“保存”。生成后未保存的密钥尚未生效；页面启动命令自动带入完整 Token。
-- Token 包含连接地址，exe 不写死域名；实际通信为 `wss://proxy.example.com/agent`，服务端默认 HTTP 端口为 8080，前置代理负责 TLS 和 WebSocket 转发。SSH 代理端口 2222 是给 LLM 使用的独立入口。
-- 新主机仅自注册，不自动授权。在服务器列表手动关联客户端凭证后，才允许通过 SSH 代理访问。
-- Agent 通过 WSS 连接 `/agent`；不需要 NATS。
-- 首版支持非交互命令，每台设备一个任务，最长 5 分钟；暂不支持 SFTP、PTY、stdin 和端口转发。
-- 项目现名为 `aiagent-ssh-proxy`，Windows 客户端为 `aiagent-ssh-client.exe`。编译、HTTPS 配置、启动与文件读取示例见 [Windows Agent 接入说明](docs/20260911-windows-agent.md)。
-
-前端开发与官方骨架来源见 [前端说明](webui/README.md)。
-
-## 下载与管理后台
-
-从 [GitHub Releases](https://github.com/kingsh2012/claude-ssh-proxy/releases) 下载对应发布包：
-
-- Linux 服务端：`aiagent-ssh-proxy-linux-amd64.tar.gz`，包含程序、安装脚本、systemd 模板和说明。
-- Windows 客户端：`aiagent-ssh-client-windows-amd64.zip`，解压后运行 `aiagent-ssh-client.exe`。
-- 服务器列表：回车搜索、列头筛选、跨页多选，工具栏支持批量禁用、启用和删除；行内直接编辑、测试、启用/禁用、复制和删除。
-- 两类凭证：名称及绑定主机搜索，服务器凭证还支持 SSH 登录名搜索；统一使用“新建”按钮。
-- 当前连接每 3 秒、审计每 5 秒静默更新；审计详情用大弹窗展示输入和输出，采用深色终端配色。
-- 服务设置：SSH 监听、管理员密码、公网 HTTPS 主域名和自注册 Token。界面为绿色主题，仅显示文字品牌，无图片 Logo 和默认 favicon。
-
-## 快速开始
-
-### 1. 编译
-
-需要 Go 1.26.3+ 和 Node 22+。
-
-```bash
-cd webui
-npm ci
-npm run build   # 产出 webui/dist,会被 go:embed 打进最终二进制
-cd ..
-go build -o aiagent-ssh-proxy .
+```powershell
+.\aiagent-ssh-client.exe -token '自注册Token' -hostname 'es-windows-01'
 ```
 
-### 2. 启动
+Token 包含连接地址；省略 `-hostname` 时使用系统主机名。注册后需在后台手动关联客户端凭证，才能通过 SSH 访问。
 
-```bash
-./aiagent-ssh-proxy
-```
+Windows 当前支持非交互命令和通过命令读取文件，每台主机同时执行一个任务，最长 5 分钟；不支持 SFTP、PTY、stdin 和端口转发。
 
-默认:
-- SSH 监听 `:2222`
-- Web 管理后台监听 `127.0.0.1:8080`
-- 数据库文件 `aiagent-ssh-proxy.db`(当前目录)
-- 凭证加密密钥 `aiagent-ssh-proxy.db.key`(自动生成,权限为 `0600`)
+## 部署与安全
 
-首次启动会自动创建一个管理员账号,固定是 `admin` / `admin`:
+- Linux 服务端：`aiagent-ssh-proxy`；Windows 客户端：`aiagent-ssh-client.exe`。
+- 默认 SSH 端口为 `2222`，Web 服务监听 `127.0.0.1:8080`；公网 HTTPS / WSS 由 Nginx 或 Caddy 提供。
+- 当前不建议将管理后台直接向所有公网访客开放：尚缺登录限流、服务端会话撤销，以及 HTTP 超时和普通 JSON 请求体大小限制。
+- 建议公网仅开放 `/agent`，管理后台和 `/api/` 限 VPN 或可信 IP 访问，禁止直接访问后端 `8080`；SSH 入口单独限制来源。
 
-```
-========================================
-已创建初始管理员账号,首次登录后会强制要求修改密码:
-  用户名: admin
-  密码:   admin
-========================================
-```
+## 相关资料
 
-在部署机器打开 `http://127.0.0.1:8080`,或通过前置 Nginx 访问,用 `admin`/`admin` 登录。数据库里有一个"是否已初始化"标记,首次登录时这个标记是 0,前端会强制跳转到"修改密码"页面,后端同时拒绝访问其他管理 API;改完密码后标记才会变成 1。需要从局域网直接访问时,可显式传入 `-web-addr :8080`。
-
-### 3. 先建一份服务器凭证
-
-在"服务器凭证"页面点"新建",填写:
-
-- **名称**:随便起,比如"生产环境统一密码"
-- **SSH登录名**:登录目标机器用的用户名,比如 `root`
-- **认证方式**:密码或私钥
-- **绑定的服务器(可多选)**:下拉多选框,可以先留空,后面加服务器的时候再关联
-
-一份凭证可以被多台服务器共用,改一处、全部生效。已绑定服务器的凭证无法删除,需要先把引用它的服务器改成其他凭证;取消勾选某台服务器也会有二次确认提示(取消后这台服务器的认证信息会变空,需要单独重新关联一份凭证)。
-
-### 4. 添加一台目标机器
-
-在"服务器列表"页面点"新建",填写:
-
-- **代理登录名**:Agent 连 proxy 时用的用户名,比如 `abc`,唯一
-- **目标机器 IP/端口**:真实要连的机器,比如 `192.168.1.2:22`
-- **目标机器 Host Key 指纹**:可选,建议填写 `SHA256:...` 指纹以防止连接被劫持
-- **服务器凭证**:下拉选上一步建好的凭证(提供SSH登录名和密码/私钥),也可以先不选,以后再补
-- **客户端凭证(可多选)**:下拉多选框,见下一步
-
-关联关系两个方向都能编辑:服务器编辑表单里选凭证,或者反过来在"服务器凭证"页面勾选哪些机器用它。
-
-已有的服务器可以点"复制",把这一行的目标机器/端口/凭证关联都带到新建表单里,只需要改一下代理登录名(唯一)就能保存,适合批量加同类机器。不想用了也不用删,点"禁用"就行,禁用的服务器无论凭证对不对都会被直接拒绝登录。
-
-需要把登录名末尾的端口动态转发到同一台目标机器时,可把"路由模式"改为"动态端口",例如:
-
-```text
-代理登录名模板: server-${PORT}
-目标 SSH 服务器: 192.168.1.100
-允许端口范围:   8000-9000
-```
-
-此时连接 `ssh -p 2222 server-8888@192.168.1.200` 会转发到 `192.168.1.100:8888`。目标端口上必须运行 SSH 服务;这不是任意 TCP 端口转发。客户端凭证、服务器凭证、Host Key 指纹和旧设备兼容配置都绑定在模板规则上。建议按实际需要收紧允许端口范围,避免客户端借此探测目标机器的其他 SSH 端口。
-
-批量添加服务器可以用"导入"功能:点"导入"弹出一个 CSV 粘贴框,格式是:
-
-```
-proxy_user,target_host,target_port,server_credential_id,client_credential_id
-srv1,192.168.1.2,,1,1;2
-srv2,192.168.1.3,22,,3
-srv3,192.168.1.4,,,
-```
-
-`proxy_user` 是唯一键,已存在就覆盖更新,不存在就新增;`target_port`/`server_credential_id`/`client_credential_id` 留空分别默认 22、不关联服务器凭证、不关联客户端凭证;`client_credential_id` 一个格子里可以用分号分隔关联多个客户端凭证。CSV 使用凭证 ID 而非名称，可从已登录的 `/api/server-credentials` 和 `/api/client-credentials` 接口查询。提交前会先校验格式(表头、必填、端口范围、引用的 id 是否存在),校验不通过不会调用任何接口;校验通过后逐行导入,单独一行失败不影响其他行,结果里会列出每行是新增/更新/失败。
-
-### 5. 添加客户端凭证,关联到这台机器
-
-在"客户端凭证"页面点"新建",填写:
-
-- **认证方式**:公钥或密码
-  - 公钥:粘贴 Agent 侧私钥对应的公钥,名称会自动从公钥末尾的 comment 截取(可以手动改)
-  - 密码:给这份凭证设一个共享密码
-- **绑定的服务器(可多选)**:下拉多选框,想让这份凭证能连几台机器就选几个;一份凭证可以关联多台服务器,一台服务器也可以被多份凭证共用
-
-这个关联关系在"服务器"页面编辑某台机器时也能反过来勾选,两边改的是同一份数据。
-
-### 6. 让 Agent 连接
-
-把 Agent 侧的私钥交给 Claude(或者告诉它用密码),让它这样连:
-
-```bash
-ssh -p 2222 abc@<proxy-ip>
-```
-
-Agent 之后执行的每条命令、每个交互式 shell 会话,都会被记录进审计日志。Web 后台的"审计日志"页面可以组合代理名称、目标服务器和客户端凭证过滤;"当前连接"页面展示尚未断开的 SSH 连接及活动会话数。
-
-## 常用参数
-
-```
-./aiagent-ssh-proxy \
-  -db aiagent-ssh-proxy.db \        # SQLite 数据库路径
-  -host-key host_key \             # proxy 自身 SSH host key 文件(不存在会自动生成)
-  -ssh-addr :2223 \                # 覆盖并保存 SSH 监听地址(留空时使用数据库配置)
-  -web-addr 127.0.0.1:8080 \       # Web 管理后台监听地址
-  -bootstrap-admin-user admin \    # 首次启动自动创建的管理员用户名
-  -bootstrap-admin-password admin  # 首次启动自动创建的管理员初始密码(登录后强制要求修改)
-```
-
-SSH 监听地址会保存在数据库里,首次启动默认 `:2222`;通过 `-ssh-addr` 指定地址时会覆盖并保存到数据库,之后可在 Web 后台"服务设置"页面修改。未传 `-ssh-addr` 时以数据库配置为准。新地址会先实际绑定再切换;地址重叠时若切换失败会尝试恢复旧监听。
-
-## 用 systemd 常驻运行
-
-Release 压缩包自带一键安装脚本。下载后解压并以 root 执行:
-
-```bash
-cd /root
-tar xzf aiagent-ssh-proxy-linux-amd64.tar.gz
-cd aiagent-ssh-proxy-linux-amd64
-./install.sh --ssh-addr :2223
-```
-
-如果本机的 `2222` 已被其他程序占用,用 `--ssh-addr` 选择空闲端口。还可以同时指定 Web 监听地址,例如 `./install.sh --ssh-addr :2223 --web-addr 127.0.0.1:8080`。`--ssh-addr` 会覆盖数据库中的旧监听地址,因此也能恢复因旧端口被占用而无法启动的安装。服务启动成功后该一次性覆盖会自动清除,后续以网页保存的配置为准;重复安装但不传选项时不会改变 SSH 监听。
-
-安装脚本会把程序、数据库、凭证加密密钥和 host key 放在 `/data/aiagent-ssh-proxy`,安装 systemd 服务并以 root 用户启动。重复执行可用于升级,已有数据不会被覆盖;升级前会把数据库、`.key` 和 host key 备份到 `/data/aiagent-ssh-proxy/backups/<时间>/`,新服务启动失败时会自动恢复上一版程序和 unit。若检测到旧版 `/var/lib/aiagent-ssh-proxy` 数据且新目录还没有数据库,脚本会在停止服务后复制旧数据,同时保留旧目录用于回退。 检测到 `ops-ssh-proxy` 或 `claude-ssh-proxy` 旧服务或旧数据目录时，安装脚本会停止安装，避免创建空库；请按 [更名迁移说明](docs/20260911-windows-agent.md#aiagent-名称与迁移2026-09-14) 处理。
-
-常用管理命令:
-
-```bash
-systemctl status aiagent-ssh-proxy
-systemctl restart aiagent-ssh-proxy
-journalctl -u aiagent-ssh-proxy -f
-```
-
-Nginx 反向代理至少应传入原始协议,让登录 Cookie 在 HTTPS 下自动带上 `Secure`:
-
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:8080;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-}
-```
-
-## 目录结构
-
-```
-.
-├── main.go            # 入口:初始化数据库、启动 SSH proxy 和 Web 服务
-├── store.go            # SQLite 存储层:路由、管理员账号、审计日志
-├── auth.go             # proxy 侧认证:公钥/密码校验
-├── proxy.go            # SSH 反向代理核心:接受连接、按用户名路由、双向转发
-├── audit.go            # 审计日志采集(exec 命令、shell 会话)
-├── keys.go             # host key 生成、私钥解析
-├── api.go              # Web 管理后台的 HTTP API
-├── staticfs.go         # 用 go:embed 把前端产物打进二进制
-├── self_registration.go # Token 自注册、地址和授权边界
-├── cmd/windows-agent/   # Windows 客户端入口
-├── internal/winagent/   # Windows 连接与命令执行
-├── systemd/             # aiagent-ssh-proxy 服务模板
-└── webui/               # React + Umi Max + Ant Design Pro 前端源码
-```
-
-## 公网部署边界（2026-09-14 核查）
-
-当前版本不建议把管理后台直接开放给所有公网访客。已实现 bcrypt 密码哈希、管理接口登录校验、首次登录改密，以及 HttpOnly / SameSite Cookie（正确配置 HTTPS 反向代理时带 Secure）。尚缺少：
-
-- 登录请求限流和失败锁定。
-- 服务端登录会话撤销：退出仅清除当前浏览器 Cookie，修改密码不撤销已签发 JWT；被复制的 Token 可继续使用至过期，最长 12 小时。
-- HTTP 请求超时和普通 JSON 请求体大小限制。
-
-建议只公开 `/agent` 接入路径，管理后台 `/` 和 `/api/` 仅允许 VPN 或可信 IP 访问。公网入口由反向代理提供 HTTPS，禁止绕过反向代理直连后端 8080；SSH 端口单独按可信来源控制。若管理后台必须面向所有公网访客，先完成上述加固。本节为代码检查结论，不等于完成公网渗透测试。
-
-## 安全注意事项
-
-- 目标机器密码/私钥使用 AES-GCM 加密后写入 SQLite。加密密钥是数据库旁边的 `<数据库文件>.key`;备份和恢复时两者必须配套,密钥丢失后凭证无法恢复
-- Web 服务本身提供 HTTP,默认只监听本机。对外访问应由 Nginx/Caddy 等反向代理提供 HTTPS
-- 未填写目标机器 Host Key 指纹时,为兼容旧数据仍不会校验目标身份;建议逐台填写服务器页面中的 `SHA256:...` 指纹
-
-## CI/CD
-
-- `.github/workflows/ci.yml`:每次 push / PR 到 `main` 分支,自动构建前端 + `go vet` + `go build` + `go test`
-- `.github/workflows/release.yml`:推送 `vX.Y.Z` 格式的 tag(例如 `v0.0.1`)会自动触发,编译 Linux amd64 版本并打包为带顶层目录的 `.tar.gz`;安装包内含二进制、`install.sh` 和 systemd unit,同时编译 Windows amd64 客户端并打包为 `.zip`，随后自动发布到 GitHub Release
-
-发布新版本:
-
-```bash
-git tag v0.0.2
-git push origin v0.0.2
-```
+- [下载发布包](https://github.com/kingsh2012/claude-ssh-proxy/releases)
+- [Windows 接入与部署说明](docs/20260911-windows-agent.md)
+- [前端开发说明](webui/README.md)

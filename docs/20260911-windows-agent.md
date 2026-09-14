@@ -262,3 +262,12 @@ Remove-Item -LiteralPath 'Cert:\CurrentUser\Root\55C80A83352F2133B05F832AA9E2921
 - 从 v0.0.28 升级，备份：`/data/claude-ssh-proxy/20260914-v0.0.29-deploy-64ewc_3b/production-backup`。全部原有数据逐项保留，包括 38 台主机、39 条授权关联、1651 条审计及现有自注册设置；数据库完整性、外键、主机密钥、数据库密钥和 systemd 配置检查通过。
 - 服务 active/running，NRestarts=0。正式静态资源配合模拟业务 API 验证批量解禁与跳过已启用项、批量禁用/删除失败重试、生成 Token 前后密码区纵坐标不变、宽窄屏与既有交互；未通过页面测试修改生产数据。
 - 服务端 SHA256：`35610927b718c7254e66fc7b64a6f51ec997117413f46a02ddb59e05725fd100`。本机 `dist/` 已同步正式程序和发布包，验证材料位于 `dist/20260914-v0.0.29/`。
+
+
+## v0.0.31 发布与部署（2026-09-14）
+
+- 已部署到 `192.168.102.7:8080`，代码提交 `7f33d29`。多选列缩至 32px；服务器启用/禁用、复制和删除直接显示；批量操作移入工具栏下拉框，取消选中后的额外提示行。两类凭证“更多操作”菜单中的删除项统一为“删除”。
+- [正式发布](https://github.com/kingsh2012/claude-ssh-proxy/releases/tag/v0.0.31)；[CI](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34808731211) 与 [Release](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34808731105) 均成功。v0.0.30 为追加文案前的中间发布，未部署。
+- 从 v0.0.29 升级，备份：`/data/claude-ssh-proxy/20260914-v0.0.31-deploy-_c9e6b7c/production-backup`。40 台主机、41 条授权关联、1655 条审计、现有凭证及自注册设置逐项保留；数据库完整性、外键、密钥和服务配置检查通过。
+- 服务 active/running，NRestarts=0。正式静态资源配合模拟业务 API 验证多选列宽、行内按钮、选中时表格不下移、批量菜单禁用/启用/删除及失败重试、两类凭证删除菜单文案，以及设置页和静默刷新回归；页面验证未修改生产业务数据。
+- 服务端 SHA256：`123c9333d592da6c70a4021e0095a7a741aa54a5255a06a1527a20ad9524125f`。本机 `dist/` 已更新正式程序及发布包，验证材料位于 `dist/20260914-v0.0.31/`。

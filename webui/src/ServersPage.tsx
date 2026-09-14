@@ -103,14 +103,14 @@ export function ServersPage() {
   const [selectedServerIds, setSelectedServerIds] = useState<number[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  async function bulkAction(action: "disable" | "delete") {
+  async function bulkAction(action: "disable" | "enable" | "delete") {
     if (bulkBusy) return;
     const targets = servers.filter((server) => selectedServerIds.includes(server.id));
     if (!targets.length) return;
-    const label = action === "delete" ? "删除" : "禁用";
+    const label = action === "delete" ? "删除" : action === "enable" ? "解禁" : "禁用";
     setBulkBusy(true);
     try {
-      if (!(await confirm(`确定${label}选中的 ${targets.length} 台服务器吗？${action === "delete" ? "删除后不可在页面恢复。" : "已禁用的服务器将跳过。"}\n${targets.map((server) => server.proxy_user).join("、")}`))) return;
+      if (!(await confirm(`确定${label}选中的 ${targets.length} 台服务器吗？${action === "delete" ? "删除后不可在页面恢复。" : action === "enable" ? "已启用的服务器将跳过。" : "已禁用的服务器将跳过。"}\n${targets.map((server) => server.proxy_user).join("、")}`))) return;
       const failed: number[] = [];
       const failures: string[] = [];
       for (const server of targets) {
@@ -121,8 +121,8 @@ export function ServersPage() {
             setClientCredentials((previous) => previous.map((credential) => ({
               ...credential, proxy_users: credential.proxy_users.filter((name) => name !== server.proxy_user),
             })));
-          } else if (server.enabled) {
-            const updated = await api.setServerEnabled(server.proxy_user, false);
+          } else if (server.enabled !== (action === "enable")) {
+            const updated = await api.setServerEnabled(server.proxy_user, action === "enable");
             setServers((previous) => previous.map((row) => row.id === server.id ? updated : row));
           }
         } catch (err) {
@@ -456,6 +456,7 @@ export function ServersPage() {
         tableAlertRender={() => `已选择 ${selectedServerIds.length} 台服务器（含其他分页和筛选前的选择）`}
         tableAlertOptionRender={() => [
           <Button key="disable" disabled={bulkBusy} onClick={() => void bulkAction("disable")}>批量禁用</Button>,
+          <Button key="enable" disabled={bulkBusy} onClick={() => void bulkAction("enable")}>批量解禁</Button>,
           <Button key="delete" danger disabled={bulkBusy} onClick={() => void bulkAction("delete")}>批量删除</Button>,
           <Button key="cancel" type="link" disabled={bulkBusy} onClick={() => setSelectedServerIds([])}>取消选择</Button>,
         ]}

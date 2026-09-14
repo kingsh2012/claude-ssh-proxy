@@ -51,6 +51,7 @@ export function SettingsPage() {
       breadcrumb={{ items: [{ title: "运维管理" }, { title: "服务设置" }] }}
     >
       <div className="work-surface settings-grid">
+        <div className="settings-account-column">
         <section>
           <h3 className="mb-3 text-base font-semibold text-slate-900 ">
             SSH 监听地址
@@ -73,7 +74,6 @@ export function SettingsPage() {
           </div>
         </section>
 
-        <SelfRegistrationSettings />
 
         <section>
           <h3 className="mb-3 text-base font-semibold text-slate-900 ">
@@ -98,6 +98,8 @@ export function SettingsPage() {
             {pwMsg && <p className="text-sm text-slate-600 ">{pwMsg}</p>}
           </div>
         </section>
+        </div>
+        <SelfRegistrationSettings />
       </div>
     </PageContainer>
   );

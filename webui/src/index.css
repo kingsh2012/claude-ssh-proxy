@@ -358,9 +358,14 @@ ol {
   gap: 24px;
   align-items: start;
 }
+.settings-account-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
 .registration-card {
-  grid-column: 2;
-  grid-row: 1 / span 2;
+  min-width: 0;
 }
 .settings-grid h3 {
   font-size: 16px;
@@ -424,10 +429,6 @@ ol {
 @media (max-width: 991px) {
   .settings-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .registration-card {
-    grid-column: auto;
-    grid-row: auto;
   }
 }
 @media (max-width: 600px) {

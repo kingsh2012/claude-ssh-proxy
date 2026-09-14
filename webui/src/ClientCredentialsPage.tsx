@@ -134,7 +134,7 @@ export function ClientCredentialsPage() {
               items: [
                 {
                   key: "delete",
-                  label: "删除客户端凭证",
+                  label: "删除",
                   danger: true,
                   onClick: () => remove(c.id, c.label),
                 },

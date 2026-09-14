@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kingsh2012/ops-ssh-proxy/internal/agentwire"
+	"github.com/kingsh2012/aiagent-ssh-proxy/internal/agentwire"
 )
 
 type SelfRegistration struct {

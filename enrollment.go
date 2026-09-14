@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/kingsh2012/ops-ssh-proxy/internal/agentwire"
+	"github.com/kingsh2012/aiagent-ssh-proxy/internal/agentwire"
 )
 
 var validAgentHostname = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)

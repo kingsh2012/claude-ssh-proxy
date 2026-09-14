@@ -152,7 +152,7 @@ export function SelfRegistrationSettings() {
         <p className="text-sm text-slate-500">
           默认使用 Windows 主机名作为代理登录名，也可指定：
         </p>
-        <pre className="agent-command">{`.\\ops-ssh-agent.exe -token '${token || "自注册Token"}' -hostname 'es-windows-01'`}</pre>
+        <pre className="agent-command">{`.\\aiagent-ssh-client.exe -token '${token || "自注册Token"}' -hostname 'es-windows-01'`}</pre>
         {message && <p className="text-sm text-emerald-600">{message}</p>}
         {error && (
           <p role="alert" className="text-sm text-red-600">

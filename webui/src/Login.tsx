@@ -12,7 +12,7 @@ export function Login({
   return (
     <div className="auth-screen">
       <LoginForm<{ username: string; password: string }>
-        title="ops-ssh-proxy"
+        title="aiagent-ssh-proxy"
         subTitle="运维管理后台"
         submitter={{ searchConfig: { submitText: "登录" } }}
         onFinish={async ({ username, password }) => {

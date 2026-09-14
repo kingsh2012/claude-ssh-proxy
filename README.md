@@ -1,4 +1,6 @@
-# ops-ssh-proxy
+# aiagent-ssh-proxy
+
+更新日期：2026-09-14。原项目名为 `ops-ssh-proxy`；历史 GitHub 仓库地址仍沿用 `claude-ssh-proxy`。
 
 一个给 AI Agent(如 Claude)使用的 SSH 反向代理:Agent 用一个代理登录名连接到 proxy,proxy 校验身份后自动路由、连接到真正的目标机器,并把 Agent 在会话里执行的操作记录成审计日志。同时内置一个 Ant Design Pro 精简版 Web 管理后台,用来维护路由、监听地址和查看审计记录。
 
@@ -10,7 +12,7 @@
 - 密码认证还要靠 `sshpass`,密码容易明文出现在进程列表、日志、对话上下文里
 - 没有集中的操作审计,不知道 Agent 具体执行了什么命令
 
-`ops-ssh-proxy` 把这些收敛到一层:
+`aiagent-ssh-proxy` 把这些收敛到一层:
 
 - Agent 只需要知道一个"代理登录名"(比如 `abc`),不需要知道真实的目标 IP、账号、密码/私钥
 - 代理登录名到目标机器的映射、目标机器的认证信息,统一在 Web 后台配置和保管
@@ -34,15 +36,29 @@ Claude ───────────────────▶ proxy ──
 
 ## Windows 主动接入
 
-Windows 无法安装 OpenSSH 或不开放入站端口时，可运行单文件 `ops-ssh-agent.exe` 主动连接本代理。LLM 仍使用原来的 SSH 登录名执行 PowerShell、读取日志；认证、后台和审计继续复用。
+Windows 无法安装 OpenSSH 或不开放入站端口时，可运行单文件 `aiagent-ssh-client.exe` 主动连接本代理。LLM 仍使用原来的 SSH 登录名执行 PowerShell、读取日志；认证、后台和审计继续复用。
 
 - 在后台“服务设置”生成统一的自注册 Token，先保存公网连接地址，再随机生成密钥并保存；主机注册后手动授权，多台 Windows 共用。
-- Windows 执行 `ops-ssh-agent.exe -token '自注册Token' [-hostname '代理登录名']`，按本机主机名自动注册，无需预建服务器、填写 ID 或配置文件。
+- Windows 执行 `aiagent-ssh-client.exe -token '自注册Token' [-hostname '代理登录名']`，按本机主机名自动注册，无需预建服务器、填写 ID 或配置文件。
+- 公网地址只填写 `https://proxy.example.com`，先点“保存地址”，再点“随机生成密钥”和“保存”。生成后未保存的密钥尚未生效；页面启动命令自动带入完整 Token。
+- Token 包含连接地址，exe 不写死域名；实际通信为 `wss://proxy.example.com/agent`，服务端默认 HTTP 端口为 8080，前置代理负责 TLS 和 WebSocket 转发。SSH 代理端口 2222 是给 LLM 使用的独立入口。
+- 新主机仅自注册，不自动授权。在服务器列表手动关联客户端凭证后，才允许通过 SSH 代理访问。
 - Agent 通过 WSS 连接 `/agent`；不需要 NATS。
 - 首版支持非交互命令，每台设备一个任务，最长 5 分钟；暂不支持 SFTP、PTY、stdin 和端口转发。
-- 项目现名为 `ops-ssh-proxy`，Windows 客户端为 `ops-ssh-agent.exe`。编译、HTTPS 配置、启动与文件读取示例见 [Windows Agent 接入说明](docs/20260911-windows-agent.md)。
+- 项目现名为 `aiagent-ssh-proxy`，Windows 客户端为 `aiagent-ssh-client.exe`。编译、HTTPS 配置、启动与文件读取示例见 [Windows Agent 接入说明](docs/20260911-windows-agent.md)。
 
 前端开发与官方骨架来源见 [前端说明](webui/README.md)。
+
+## 下载与管理后台
+
+从 [GitHub Releases](https://github.com/kingsh2012/claude-ssh-proxy/releases) 下载对应发布包：
+
+- Linux 服务端：`aiagent-ssh-proxy-linux-amd64.tar.gz`，包含程序、安装脚本、systemd 模板和说明。
+- Windows 客户端：`aiagent-ssh-client-windows-amd64.zip`，解压后运行 `aiagent-ssh-client.exe`。
+- 服务器列表：回车搜索、列头筛选、跨页多选，工具栏支持批量禁用、启用和删除；行内直接编辑、测试、启用/禁用、复制和删除。
+- 两类凭证：名称及绑定主机搜索，服务器凭证还支持 SSH 登录名搜索；统一使用“新建”按钮。
+- 当前连接每 3 秒、审计每 5 秒静默更新；审计详情用大弹窗展示输入和输出，采用深色终端配色。
+- 服务设置：SSH 监听、管理员密码、公网 HTTPS 主域名和自注册 Token。界面为绿色主题，仅显示文字品牌，无图片 Logo 和默认 favicon。
 
 ## 快速开始
 
@@ -52,23 +68,23 @@ Windows 无法安装 OpenSSH 或不开放入站端口时，可运行单文件 `o
 
 ```bash
 cd webui
-npm install
+npm ci
 npm run build   # 产出 webui/dist,会被 go:embed 打进最终二进制
 cd ..
-go build -o ops-ssh-proxy .
+go build -o aiagent-ssh-proxy .
 ```
 
 ### 2. 启动
 
 ```bash
-./ops-ssh-proxy
+./aiagent-ssh-proxy
 ```
 
 默认:
 - SSH 监听 `:2222`
 - Web 管理后台监听 `127.0.0.1:8080`
-- 数据库文件 `ops-ssh-proxy.db`(当前目录)
-- 凭证加密密钥 `ops-ssh-proxy.db.key`(自动生成,权限为 `0600`)
+- 数据库文件 `aiagent-ssh-proxy.db`(当前目录)
+- 凭证加密密钥 `aiagent-ssh-proxy.db.key`(自动生成,权限为 `0600`)
 
 首次启动会自动创建一个管理员账号,固定是 `admin` / `admin`:
 
@@ -84,7 +100,7 @@ go build -o ops-ssh-proxy .
 
 ### 3. 先建一份服务器凭证
 
-在"服务器凭证"页面点"添加服务器凭证",填写:
+在"服务器凭证"页面点"新建",填写:
 
 - **名称**:随便起,比如"生产环境统一密码"
 - **SSH登录名**:登录目标机器用的用户名,比如 `root`
@@ -95,7 +111,7 @@ go build -o ops-ssh-proxy .
 
 ### 4. 添加一台目标机器
 
-在"服务器"页面点"添加服务器",填写:
+在"服务器列表"页面点"新建",填写:
 
 - **代理登录名**:Agent 连 proxy 时用的用户名,比如 `abc`,唯一
 - **目标机器 IP/端口**:真实要连的机器,比如 `192.168.1.2:22`
@@ -126,11 +142,11 @@ srv2,192.168.1.3,22,,3
 srv3,192.168.1.4,,,
 ```
 
-`proxy_user` 是唯一键,已存在就覆盖更新,不存在就新增;`target_port`/`server_credential_id`/`client_credential_id` 留空分别默认 22、不关联服务器凭证、不关联客户端凭证;`client_credential_id` 一个格子里可以用分号分隔关联多个客户端凭证。服务器凭证/客户端凭证的 ID 在各自页面的"ID"列能看到。提交前会先校验格式(表头、必填、端口范围、引用的 id 是否存在),校验不通过不会调用任何接口;校验通过后逐行导入,单独一行失败不影响其他行,结果里会列出每行是新增/更新/失败。
+`proxy_user` 是唯一键,已存在就覆盖更新,不存在就新增;`target_port`/`server_credential_id`/`client_credential_id` 留空分别默认 22、不关联服务器凭证、不关联客户端凭证;`client_credential_id` 一个格子里可以用分号分隔关联多个客户端凭证。CSV 使用凭证 ID 而非名称，可从已登录的 `/api/server-credentials` 和 `/api/client-credentials` 接口查询。提交前会先校验格式(表头、必填、端口范围、引用的 id 是否存在),校验不通过不会调用任何接口;校验通过后逐行导入,单独一行失败不影响其他行,结果里会列出每行是新增/更新/失败。
 
 ### 5. 添加客户端凭证,关联到这台机器
 
-在"客户端凭证"页面点"添加客户端凭证",填写:
+在"客户端凭证"页面点"新建",填写:
 
 - **认证方式**:公钥或密码
   - 公钥:粘贴 Agent 侧私钥对应的公钥,名称会自动从公钥末尾的 comment 截取(可以手动改)
@@ -152,8 +168,8 @@ Agent 之后执行的每条命令、每个交互式 shell 会话,都会被记录
 ## 常用参数
 
 ```
-./ops-ssh-proxy \
-  -db ops-ssh-proxy.db \        # SQLite 数据库路径
+./aiagent-ssh-proxy \
+  -db aiagent-ssh-proxy.db \        # SQLite 数据库路径
   -host-key host_key \             # proxy 自身 SSH host key 文件(不存在会自动生成)
   -ssh-addr :2223 \                # 覆盖并保存 SSH 监听地址(留空时使用数据库配置)
   -web-addr 127.0.0.1:8080 \       # Web 管理后台监听地址
@@ -169,21 +185,21 @@ Release 压缩包自带一键安装脚本。下载后解压并以 root 执行:
 
 ```bash
 cd /root
-tar xzf ops-ssh-proxy-linux-amd64.tar.gz
-cd ops-ssh-proxy-linux-amd64
+tar xzf aiagent-ssh-proxy-linux-amd64.tar.gz
+cd aiagent-ssh-proxy-linux-amd64
 ./install.sh --ssh-addr :2223
 ```
 
 如果本机的 `2222` 已被其他程序占用,用 `--ssh-addr` 选择空闲端口。还可以同时指定 Web 监听地址,例如 `./install.sh --ssh-addr :2223 --web-addr 127.0.0.1:8080`。`--ssh-addr` 会覆盖数据库中的旧监听地址,因此也能恢复因旧端口被占用而无法启动的安装。服务启动成功后该一次性覆盖会自动清除,后续以网页保存的配置为准;重复安装但不传选项时不会改变 SSH 监听。
 
-安装脚本会把程序、数据库、凭证加密密钥和 host key 放在 `/data/ops-ssh-proxy`,安装 systemd 服务并以 root 用户启动。重复执行可用于升级,已有数据不会被覆盖;升级前会把数据库、`.key` 和 host key 备份到 `/data/ops-ssh-proxy/backups/<时间>/`,新服务启动失败时会自动恢复上一版程序和 unit。若检测到旧版 `/var/lib/ops-ssh-proxy` 数据且新目录还没有数据库,脚本会在停止服务后复制旧数据,同时保留旧目录用于回退。 检测到 `claude-ssh-proxy` 旧服务或旧数据目录时，安装脚本会停止安装，避免创建空库；请按 [更名迁移说明](docs/20260911-windows-agent.md#项目更名与迁移2026-09-14) 处理。
+安装脚本会把程序、数据库、凭证加密密钥和 host key 放在 `/data/aiagent-ssh-proxy`,安装 systemd 服务并以 root 用户启动。重复执行可用于升级,已有数据不会被覆盖;升级前会把数据库、`.key` 和 host key 备份到 `/data/aiagent-ssh-proxy/backups/<时间>/`,新服务启动失败时会自动恢复上一版程序和 unit。若检测到旧版 `/var/lib/aiagent-ssh-proxy` 数据且新目录还没有数据库,脚本会在停止服务后复制旧数据,同时保留旧目录用于回退。 检测到 `ops-ssh-proxy` 或 `claude-ssh-proxy` 旧服务或旧数据目录时，安装脚本会停止安装，避免创建空库；请按 [更名迁移说明](docs/20260911-windows-agent.md#aiagent-名称与迁移2026-09-14) 处理。
 
 常用管理命令:
 
 ```bash
-systemctl status ops-ssh-proxy
-systemctl restart ops-ssh-proxy
-journalctl -u ops-ssh-proxy -f
+systemctl status aiagent-ssh-proxy
+systemctl restart aiagent-ssh-proxy
+journalctl -u aiagent-ssh-proxy -f
 ```
 
 Nginx 反向代理至少应传入原始协议,让登录 Cookie 在 HTTPS 下自动带上 `Secure`:
@@ -209,7 +225,11 @@ location / {
 ├── keys.go             # host key 生成、私钥解析
 ├── api.go              # Web 管理后台的 HTTP API
 ├── staticfs.go         # 用 go:embed 把前端产物打进二进制
-└── webui/              # React + Tailwind 前端源码
+├── self_registration.go # Token 自注册、地址和授权边界
+├── cmd/windows-agent/   # Windows 客户端入口
+├── internal/winagent/   # Windows 连接与命令执行
+├── systemd/             # aiagent-ssh-proxy 服务模板
+└── webui/               # React + Umi Max + Ant Design Pro 前端源码
 ```
 
 ## 安全注意事项
@@ -221,7 +241,7 @@ location / {
 ## CI/CD
 
 - `.github/workflows/ci.yml`:每次 push / PR 到 `main` 分支,自动构建前端 + `go vet` + `go build` + `go test`
-- `.github/workflows/release.yml`:推送 `vX.Y.Z` 格式的 tag(例如 `v0.0.1`)会自动触发,编译 Linux amd64 版本并打包为带顶层目录的 `.tar.gz`;安装包内含二进制、`install.sh` 和 systemd unit,随后自动发布到 GitHub Release
+- `.github/workflows/release.yml`:推送 `vX.Y.Z` 格式的 tag(例如 `v0.0.1`)会自动触发,编译 Linux amd64 版本并打包为带顶层目录的 `.tar.gz`;安装包内含二进制、`install.sh` 和 systemd unit,同时编译 Windows amd64 客户端并打包为 `.zip`，随后自动发布到 GitHub Release
 
 发布新版本:
 

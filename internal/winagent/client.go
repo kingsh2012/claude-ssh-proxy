@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/kingsh2012/ops-ssh-proxy/internal/agentwire"
+	"github.com/kingsh2012/aiagent-ssh-proxy/internal/agentwire"
 	"github.com/pelletier/go-toml/v2"
 )
 

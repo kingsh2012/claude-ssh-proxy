@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kingsh2012/ops-ssh-proxy/internal/winagent"
+	"github.com/kingsh2012/aiagent-ssh-proxy/internal/winagent"
 	"golang.org/x/crypto/ssh"
 )
 

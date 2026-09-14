@@ -3,7 +3,8 @@ import routes from "./routes";
 
 // Ant Design Pro 官方精简骨架：保留路由和构建，移除 mock、示例及 OpenAPI。
 export default defineConfig({
-  title: "ops-ssh-proxy",
+  title: "aiagent-ssh-proxy",
+  favicons: ["data:,"],
   hash: true,
   esbuildMinifyIIFE: true,
   publicPath: "/",

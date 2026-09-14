@@ -58,4 +58,4 @@ jobs:
       - name: Vet
         run: go vet ./...
       - name: Build Windows Agent
-        run: go build -trimpath -o dist/ops-ssh-agent.exe ./cmd/windows-agent
+        run: go build -trimpath -o dist/aiagent-ssh-client.exe ./cmd/windows-agent

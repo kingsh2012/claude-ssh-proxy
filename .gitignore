@@ -1,4 +1,5 @@
 /ops-ssh-proxy
+/aiagent-ssh-proxy
 /claude-ssh-proxy
 /ssh-proxy
 *.db

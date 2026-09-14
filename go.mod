@@ -1,4 +1,4 @@
-module github.com/kingsh2012/ops-ssh-proxy
+module github.com/kingsh2012/aiagent-ssh-proxy
 
 go 1.26.3
 

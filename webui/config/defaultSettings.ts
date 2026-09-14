@@ -16,7 +16,7 @@ const Settings: ProLayoutProps & {
   fixedHeader: true,
   fixSiderbar: true,
   colorWeak: false,
-  title: "ops-ssh-proxy",
+  title: "aiagent-ssh-proxy",
   logo: false,
   iconfontUrl: "",
   token: {

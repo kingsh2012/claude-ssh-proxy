@@ -74,7 +74,7 @@ func (p *Proxy) activateListener(ln net.Listener, addr string) {
 	p.listener = ln
 	p.listenAddr = addr
 
-	log.Printf("ops-ssh-proxy 正在监听 %s", addr)
+	log.Printf("aiagent-ssh-proxy 正在监听 %s", addr)
 
 	go func() {
 		for {

@@ -3,7 +3,7 @@
 Windows 主动通过 WSS 连接跳板机。LLM 仍使用 SSH 登录跳板机，由跳板机把命令交给 Agent 的 PowerShell 执行。目标机器不需要 OpenSSH、NATS 或入站端口。
 
 ```text
-LLM --SSH--> ops-ssh-proxy <--WSS 443-- Windows Agent
+LLM --SSH--> aiagent-ssh-proxy <--WSS 443-- Windows Agent
 ```
 
 ## 支持范围
@@ -22,13 +22,13 @@ LLM --SSH--> ops-ssh-proxy <--WSS 443-- Windows Agent
 在项目根目录构建服务端，方法见 [README](../README.md)。构建 Windows Agent：
 
 ```powershell
-go build -trimpath -o dist/ops-ssh-agent.exe ./cmd/windows-agent
+go build -trimpath -o dist/aiagent-ssh-client.exe ./cmd/windows-agent
 ```
 
 在 Linux 构建 Windows Agent：
 
 ```bash
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o dist/ops-ssh-agent.exe ./cmd/windows-agent
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o dist/aiagent-ssh-client.exe ./cmd/windows-agent
 ```
 
 ## 2. 配置中间服务器 HTTPS
@@ -64,13 +64,13 @@ location = /agent {
 ## 4. 在 Windows 启动
 
 ```powershell
-.\ops-ssh-agent.exe -token '服务设置中的自注册Token'
+.\aiagent-ssh-client.exe -token '服务设置中的自注册Token'
 ```
 
 可用 `-hostname` 直接指定代理登录名：
 
 ```powershell
-.\ops-ssh-agent.exe -token '服务设置中的自注册Token' -hostname 'es-windows-01'
+.\aiagent-ssh-client.exe -token '服务设置中的自注册Token' -hostname 'es-windows-01'
 ```
 
 - 不传 `-hostname` 时使用 Windows 主机名。名称支持字母、数字、点、短横线和下划线，以字母或数字开头，最长 253 字符。
@@ -281,3 +281,11 @@ Remove-Item -LiteralPath 'Cert:\CurrentUser\Root\55C80A83352F2133B05F832AA9E2921
 - 从 v0.0.31 升级，备份：`/data/claude-ssh-proxy/20260914-v0.0.32-deploy-fi_jtkzm/production-backup`。40 台主机、41 条授权关联、1655 条审计、凭证和自注册设置逐项保留；数据库完整性、外键、密钥和服务配置检查通过。
 - 服务 active/running，NRestarts=0。正式静态资源配合模拟业务 API 验证两类凭证搜索/清空/分页归位/URL恢复、HTTPS 地址展示保存、箭头位置、审计大弹窗/终端颜色/自动更新/文本安全及窄屏布局；页面验证未修改生产业务数据。
 - 服务端 SHA256：`a61c35eca2781d41b84672de393d4e0827c4a74e101eba802247a1aedde5b830`。本机 `dist/` 已同步正式服务端及 Windows Agent，验证材料位于 `dist/20260914-v0.0.32/`。
+
+
+## aiagent 名称与迁移（2026-09-14）
+
+- 项目和服务端更名为 `aiagent-ssh-proxy`，Windows 客户端为 `aiagent-ssh-client.exe`。新发布包为 `aiagent-ssh-proxy-linux-amd64.tar.gz`、`aiagent-ssh-client-windows-amd64.zip`。历史发布记录中的旧名称和实际备份路径保留。
+- Token 格式、WebSocket 子协议、认证 Cookie、接口及数据库结构不变；旧 Windows 客户端与现有 Token 继续兼容。新客户端使用 `aiagent-ssh-client.exe -token '完整Token' [-hostname '代理登录名']`。
+- 全新安装默认目录 `/data/aiagent-ssh-proxy`，服务 `aiagent-ssh-proxy.service`。现有部署不能直接套用默认路径：迁移前备份原程序、unit、数据库及 `.db.key`、host key，读取旧 unit 的真实参数；新 unit 继续指向原数据库与密钥、保持原监听地址，再停止旧服务、启用新服务。
+- 检测到旧 `ops-ssh-proxy` 或 `claude-ssh-proxy` 服务/数据时，通用安装脚本会阻止当作全新安装；命令行发现旧默认数据库时要求显式传 `-db`。正式迁移另行按实际部署执行，历史记录不代表已迁移。

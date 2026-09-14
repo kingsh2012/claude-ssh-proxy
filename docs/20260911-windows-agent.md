@@ -271,3 +271,13 @@ Remove-Item -LiteralPath 'Cert:\CurrentUser\Root\55C80A83352F2133B05F832AA9E2921
 - 从 v0.0.29 升级，备份：`/data/claude-ssh-proxy/20260914-v0.0.31-deploy-_c9e6b7c/production-backup`。40 台主机、41 条授权关联、1655 条审计、现有凭证及自注册设置逐项保留；数据库完整性、外键、密钥和服务配置检查通过。
 - 服务 active/running，NRestarts=0。正式静态资源配合模拟业务 API 验证多选列宽、行内按钮、选中时表格不下移、批量菜单禁用/启用/删除及失败重试、两类凭证删除菜单文案，以及设置页和静默刷新回归；页面验证未修改生产业务数据。
 - 服务端 SHA256：`123c9333d592da6c70a4021e0095a7a741aa54a5255a06a1527a20ad9524125f`。本机 `dist/` 已更新正式程序及发布包，验证材料位于 `dist/20260914-v0.0.31/`。
+
+
+## v0.0.32 发布与部署（2026-09-14）
+
+- 已部署到 `192.168.102.7:8080`，代码提交 `4fb00e8`。两类凭证增加回车搜索；审计详情改为最大 1280px 的终端配色弹窗，输入输出独立滚动并同步记录状态；高级配置箭头移至右侧并缩小。
+- 公网地址输入框只显示 HTTPS 主域名，服务端规范化为 WSS `/agent`。新版 Agent 支持 HTTPS 主域名配置、`-server` 覆盖及 HTTPS Token；旧 WSS Token 继续有效，后台新生成 Token 也兼容旧 Agent。
+- [正式发布](https://github.com/kingsh2012/claude-ssh-proxy/releases/tag/v0.0.32)；[CI](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34817301213) 与 [Release](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34817301232) 均成功。
+- 从 v0.0.31 升级，备份：`/data/claude-ssh-proxy/20260914-v0.0.32-deploy-fi_jtkzm/production-backup`。40 台主机、41 条授权关联、1655 条审计、凭证和自注册设置逐项保留；数据库完整性、外键、密钥和服务配置检查通过。
+- 服务 active/running，NRestarts=0。正式静态资源配合模拟业务 API 验证两类凭证搜索/清空/分页归位/URL恢复、HTTPS 地址展示保存、箭头位置、审计大弹窗/终端颜色/自动更新/文本安全及窄屏布局；页面验证未修改生产业务数据。
+- 服务端 SHA256：`a61c35eca2781d41b84672de393d4e0827c4a74e101eba802247a1aedde5b830`。本机 `dist/` 已同步正式服务端及 Windows Agent，验证材料位于 `dist/20260914-v0.0.32/`。

@@ -485,3 +485,7 @@ ol {
   .registration-key-row { flex-wrap: wrap; }
   .registration-key-row > .ant-input { flex-basis: 100%; }
 }
+
+.servers-table .ant-table-selection-column {
+  padding-inline: 4px !important;
+}

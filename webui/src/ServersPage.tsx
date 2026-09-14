@@ -3,7 +3,7 @@ import type { ProColumns } from "@ant-design/pro-components";
 import { Empty } from "antd";
 import {
   ReloadOutlined as RefreshIcon,
-  MoreOutlined,
+  DownOutlined,
   ClearOutlined,
 } from "@ant-design/icons";
 import { ToolbarIconAction, ListToolbarSearch } from "./ListControls";
@@ -373,7 +373,7 @@ export function ServersPage() {
     {
       title: "操作",
       key: "option",
-      width: 170,
+      width: 270,
       fixed: screens.md ? "right" : undefined,
       render: (_, s) => (
         <div className="row-actions">
@@ -389,31 +389,15 @@ export function ServersPage() {
           >
             测试
           </Button>
-          <Dropdown
-            disabled={bulkBusy}
-            menu={{
-              items: [
-                { key: "toggle", label: s.enabled ? "禁用" : "启用" },
-                ...(s.connection_type === "agent"
-                  ? []
-                  : [{ key: "copy", label: "复制" }]),
-                { key: "delete", label: "删除服务器", danger: true },
-              ],
-              onClick: ({ key }) => {
-                if (key === "toggle") void toggleEnabled(s);
-                if (key === "copy") duplicate(s);
-                if (key === "delete")
-                  void remove(s.proxy_user).catch(() => alert("删除失败"));
-              },
-            }}
-          >
-            <Button
-              type="text"
-              size="small"
-              aria-label="更多操作"
-              icon={<MoreOutlined />}
-            />
-          </Dropdown>
+          <Button type="link" size="small" disabled={bulkBusy} onClick={() => void toggleEnabled(s)}>
+            {s.enabled ? "禁用" : "启用"}
+          </Button>
+          {s.connection_type !== "agent" && (
+            <Button type="link" size="small" disabled={bulkBusy} onClick={() => duplicate(s)}>复制</Button>
+          )}
+          <Button type="link" size="small" danger disabled={bulkBusy} onClick={() => void remove(s.proxy_user).catch(() => alert("删除失败"))}>
+            删除
+          </Button>
         </div>
       ),
     },
@@ -443,6 +427,7 @@ export function ServersPage() {
 
       <ProTable<ServerRecord>
         rowKey="id"
+        className="servers-table"
 
         {...view.tableProps}
         rowSelection={{
@@ -450,16 +435,11 @@ export function ServersPage() {
           preserveSelectedRowKeys: true,
           onChange: (keys) => setSelectedServerIds(keys.map(Number)),
           getCheckboxProps: () => ({ disabled: bulkBusy }),
-          columnWidth: 48,
+          columnWidth: 32,
         }}
-        scroll={{ x: Number(view.tableProps.scroll.x) + 48 }}
-        tableAlertRender={() => `已选择 ${selectedServerIds.length} 台服务器（含其他分页和筛选前的选择）`}
-        tableAlertOptionRender={() => [
-          <Button key="disable" disabled={bulkBusy} onClick={() => void bulkAction("disable")}>批量禁用</Button>,
-          <Button key="enable" disabled={bulkBusy} onClick={() => void bulkAction("enable")}>批量解禁</Button>,
-          <Button key="delete" danger disabled={bulkBusy} onClick={() => void bulkAction("delete")}>批量删除</Button>,
-          <Button key="cancel" type="link" disabled={bulkBusy} onClick={() => setSelectedServerIds([])}>取消选择</Button>,
-        ]}
+        scroll={{ x: Number(view.tableProps.scroll.x) + 32 }}
+        tableAlertRender={false}
+        tableAlertOptionRender={false}
         rowClassName={(server) => server.enabled ? "" : "server-row-disabled"}
         loading={loading || bulkBusy}
         headerTitle={
@@ -470,6 +450,23 @@ export function ServersPage() {
           />
         }
         toolBarRender={() => [
+          <Dropdown
+            key="bulk"
+            trigger={["click"]}
+            disabled={bulkBusy || selectedServerIds.length === 0}
+            menu={{
+              items: [
+                { key: "disable", label: "批量禁用" },
+                { key: "enable", label: "批量启用" },
+                { key: "delete", label: "批量删除", danger: true },
+              ],
+              onClick: ({ key }) => void bulkAction(key as "disable" | "enable" | "delete"),
+            }}
+          >
+            <Button disabled={bulkBusy || selectedServerIds.length === 0}>
+              批量操作{selectedServerIds.length > 0 ? ` (${selectedServerIds.length})` : ""} <DownOutlined />
+            </Button>
+          </Dropdown>,
           <Button key="create" disabled={bulkBusy} type="primary" onClick={startCreate}>
             新建
           </Button>,

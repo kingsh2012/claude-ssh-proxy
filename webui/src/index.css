@@ -387,8 +387,7 @@ ol {
 .settings-fields > .ant-btn {
   align-self: flex-start;
 }
-.agent-command,
-.audit-detail pre {
+.agent-command {
   padding: 12px;
   background: #f7f8fa;
   border: 1px solid #e8e9eb;
@@ -397,11 +396,6 @@ ol {
   font:
     13px/20px Consolas,
     monospace;
-}
-.audit-detail pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 360px;
 }
 .agent-command {
   white-space: pre-wrap;
@@ -489,3 +483,53 @@ ol {
 .servers-table .ant-table-selection-column {
   padding-inline: 4px !important;
 }
+
+.audit-detail {
+  height: min(74vh, 900px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.audit-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  color: #646a73;
+  overflow-wrap: anywhere;
+}
+.audit-terminal {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+}
+.audit-terminal-input { flex: 1; }
+.audit-terminal-output { flex: 2; }
+.audit-terminal h3 {
+  margin: 0;
+  padding: 8px 16px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  color: #8b949e;
+  font-size: 12px;
+  font-weight: 500;
+}
+.audit-terminal pre {
+  margin: 0;
+  padding: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #e6edf3;
+  font: 13px/1.7 Consolas, "Cascadia Code", monospace;
+  tab-size: 4;
+}
+.audit-terminal-input pre { color: #7ee787; }
+.audit-terminal pre::selection,
+.audit-terminal code::selection { background: #264f78; }

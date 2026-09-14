@@ -7,12 +7,18 @@ import {
   type SelfRegistration,
 } from "./api";
 
+function displayAddress(value: SelfRegistration): SelfRegistration {
+  if (!value.server_url) return value;
+  const url = new URL(value.server_url);
+  return { ...value, server_url: `https://${url.host}` };
+}
+
 export function SelfRegistrationSettings() {
   const { confirm } = useFeedback();
   const [settings, setSettings] = useState<SelfRegistration | null>(null);
   const [address, setAddress] = useState(
     window.location.protocol === "https:"
-      ? `wss://${window.location.host}/agent`
+      ? window.location.origin
       : "",
   );
   const [token, setToken] = useState("");
@@ -23,6 +29,7 @@ export function SelfRegistrationSettings() {
 
   useEffect(() => {
     api.getSelfRegistration()
+      .then(displayAddress)
       .then((value) => {
         setSettings(value);
         setToken(value.token);
@@ -61,10 +68,10 @@ export function SelfRegistrationSettings() {
     setMessage("");
     try {
       setSettings(
-        await api.putSelfRegistration({
+        displayAddress(await api.putSelfRegistration({
           token,
           server_url: address,
-        }),
+        })),
       );
       setMessage("自注册 Token 已生效");
     } catch (e) {
@@ -78,7 +85,7 @@ export function SelfRegistrationSettings() {
     setError("");
     setMessage("");
     try {
-      const value = await api.saveRegistrationAddress(address);
+      const value = displayAddress(await api.saveRegistrationAddress(address));
       setSettings(value);
       setAddress(value.server_url);
       setToken(value.token);
@@ -111,15 +118,15 @@ export function SelfRegistrationSettings() {
             value={address}
             disabled={busy}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder="wss://proxy.example.com/agent"
+            placeholder="https://proxy.example.com"
           />
           <Button onClick={saveAddress} disabled={!settings || busy || !address || address === settings.server_url}>
             保存地址
           </Button>
         </div>
         <p className="text-xs text-slate-500">
-          填写 Windows 可访问且已配置 HTTPS 证书的域名地址，例如 wss://proxy.example.com/agent。
-          地址会包含在 Token 中，Agent 无需单独填写域名。
+          只填写 HTTPS 主域名，例如 https://proxy.example.com，不需要附加路径。
+          Agent 通信使用 /agent 路由，自动通过 WSS 连接；地址已包含在 Token 中。
         </p>
         <div className="registration-key-row">
           <Input

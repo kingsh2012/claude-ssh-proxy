@@ -306,3 +306,27 @@ func TestRegistrationAddressAndManualAuthorization(t *testing.T) {
 		t.Fatal("manual authorization was lost")
 	}
 }
+
+func TestHTTPSRegistrationAPIKeepsLegacyToken(t *testing.T) {
+	p, a, session, cid := enrollmentFixture(t)
+	_, oldHash := createSharedToken(t, a, session, cid)
+	current, _ := p.store.selfRegistration()
+	r := httptest.NewRequest("PUT", "/api/settings/agent-registration/address", strings.NewReader(`{"server_url":"https://example.com"}`))
+	r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session})
+	w := httptest.NewRecorder()
+	a.Router().ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("HTTPS origin rejected: %d", w.Code)
+	}
+	updated, _ := p.store.selfRegistration()
+	if updated.Token != current.Token {
+		t.Fatal("equivalent HTTPS origin changed existing token")
+	}
+	if _, _, err := p.store.resolveAgent(oldHash, "https-host", true); err != nil {
+		t.Fatal("existing token rejected")
+	}
+	body, _ := json.Marshal(map[string]string{"server_url": "https://example.com", "token": current.Token})
+	if registrationRequest(a, session, "PUT", string(body)).Code != 200 {
+		t.Fatal("HTTPS origin with WSS token rejected")
+	}
+}

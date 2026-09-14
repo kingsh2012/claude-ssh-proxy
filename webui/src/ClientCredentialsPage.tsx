@@ -2,7 +2,7 @@ import { ClientCredentialForm } from "./CredentialForms";
 import type { ProColumns } from "@ant-design/pro-components";
 import { Empty, Dropdown as ActionDropdown } from "antd";
 import { ReloadOutlined as RefreshIcon, MoreOutlined } from "@ant-design/icons";
-import { ToolbarIconAction } from "./ListControls";
+import { ToolbarIconAction, ListToolbarSearch } from "./ListControls";
 import { useListView } from "./useListView";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
 import { Grid, Button, Tag } from "antd";
@@ -152,7 +152,9 @@ export function ClientCredentialsPage() {
       ),
     },
   ];
-  const view = useListView(creds, columns, "ClientCredentialsPage", {});
+  const view = useListView(creds, columns, "ClientCredentialsPage", {
+    searchText: (credential) => [credential.label, ...(credential.proxy_users ?? [])].join(" "),
+  });
 
   return (
     <PageContainer
@@ -172,7 +174,13 @@ export function ClientCredentialsPage() {
 
         {...view.tableProps}
         loading={loading}
-        headerTitle={"客户端凭证"}
+        headerTitle={
+          <ListToolbarSearch
+            value={view.query}
+            onSearch={view.search}
+            placeholder="搜索名称 / 绑定服务器"
+          />
+        }
         toolBarRender={() => [
           <Button key="create" type="primary" onClick={startCreate}>
             新建

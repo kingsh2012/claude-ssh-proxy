@@ -8,12 +8,13 @@ import {
 import { ToolbarIconAction, TextColumnFilter } from "./ListControls";
 import { useListView } from "./useListView";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
-import { Tag, Typography, App } from "antd";
+import { Tag, Button, Modal, App } from "antd";
 import { useEffect, useState } from "react";
 import { api, type AuditLog } from "./api";
 
 export function AuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [detail, setDetail] = useState<AuditLog | null>(null);
   const [params] = useSearchParams();
   const proxyUser = params.get("proxy_user") || "";
   const targetHost = params.get("target_host") || "";
@@ -31,6 +32,7 @@ export function AuditPage() {
           clientCredentialLabel,
         })) ?? [];
       setLogs((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+      setDetail((previous) => previous ? next.find((log) => log.id === previous.id) ?? previous : null);
       setError("");
     } catch {
       setError("读取审计日志失败");
@@ -112,6 +114,12 @@ export function AuditPage() {
         </Tag>
       ),
     },
+    {
+      title: "操作",
+      key: "option",
+      width: 90,
+      render: (_, record) => <Button type="link" onClick={() => setDetail(record)}>详情</Button>,
+    },
   ];
   const view = useListView(logs, columns, "AuditPage", { match: () => true });
 
@@ -125,28 +133,6 @@ export function AuditPage() {
       <ProTable<AuditLog>
         rowKey="id"
 
-        expandable={{
-          expandedRowRender: (l) => (
-            <div className="audit-detail">
-              {l.event_type === "exec" ? (
-                <>
-                  <Typography.Text strong>命令</Typography.Text>
-                  <pre>{l.command || "（空）"}</pre>
-                  <Typography.Text strong>输出</Typography.Text>
-                  <pre>
-                    {l.output || "（无输出内容）"}
-                    {l.truncated && "\n…（已截断）"}
-                  </pre>
-                </>
-              ) : (
-                <pre>
-                  {l.detail || "（无输出内容）"}
-                  {l.truncated && "\n…（已截断）"}
-                </pre>
-              )}
-            </div>
-          ),
-        }}
         {...view.tableProps}
         loading={loading}
         headerTitle={`最近 200 条匹配记录 · ${error ? "更新失败，正在重试" : "每 5 秒自动更新"}`}
@@ -181,6 +167,36 @@ export function AuditPage() {
           ),
         }}
       />
+      <Modal
+        title={detail ? `审计详情 · ${detail.proxy_user}` : "审计详情"}
+        open={detail !== null}
+        onCancel={() => setDetail(null)}
+        footer={null}
+        centered
+        width="min(1280px, calc(100vw - 32px))"
+        destroyOnHidden
+      >
+        {detail && (
+          <div className="audit-detail">
+            <div className="audit-detail-meta">
+              <span>{new Date(detail.ts).toLocaleString()}</span>
+              <span>{detail.target_host}:{detail.target_port}</span>
+              <Tag>{detail.event_type}</Tag>
+              <Tag color={detail.status === "running" ? "processing" : detail.exit_status === 0 ? "success" : "error"}>
+                {detail.status === "running" ? "运行中" : detail.exit_status === null ? "未收到退出码" : `退出码 ${detail.exit_status}`}
+              </Tag>
+            </div>
+            <section className="audit-terminal audit-terminal-input">
+              <h3>输入命令</h3>
+              <pre tabIndex={0} aria-label="输入命令"><code>{detail.command || (detail.event_type === "exec" ? "（空命令）" : "（交互会话，记录见下方）")}</code></pre>
+            </section>
+            <section className="audit-terminal audit-terminal-output">
+              <h3>{detail.event_type === "exec" ? "输出" : "会话记录"}</h3>
+              <pre tabIndex={0} aria-label="输出"><code>{(detail.event_type === "exec" ? detail.output : detail.detail) || "（无输出内容）"}{detail.truncated && "\n…（已截断）"}</code></pre>
+            </section>
+          </div>
+        )}
+      </Modal>
     </PageContainer>
   );
 }

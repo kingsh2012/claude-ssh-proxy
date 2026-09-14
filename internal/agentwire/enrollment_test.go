@@ -31,3 +31,23 @@ func TestEnrollmentTokenCarriesOnlyValidWSSDestination(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPSOriginCompatibility(t *testing.T) {
+	secret := strings.Repeat("b", 64)
+	for _, value := range []string{"https://example.com", "https://example.com/", "https://example.com:8443"} {
+		expected := strings.Replace(strings.TrimSuffix(value, "/"), "https://", "wss://", 1) + "/agent"
+		got, err := AgentServerURL(value)
+		if err != nil || got != expected {
+			t.Fatalf("HTTPS conversion failed: %v", err)
+		}
+		destination, key, err := ParseEnrollmentToken(EnrollmentToken(value, secret))
+		if err != nil || destination != expected || key != secret {
+			t.Fatal("HTTPS token failed")
+		}
+	}
+	for _, value := range []string{"http://example.com", "https://example.com/download", "https://example.com/agent", "https://user:pass@example.com", "https://example.com?token=secret", "https://example.com/#fragment", "https://example.com/%2f", "https://example.com?"} {
+		if _, err := AgentServerURL(value); err == nil {
+			t.Fatal("invalid public origin accepted")
+		}
+	}
+}

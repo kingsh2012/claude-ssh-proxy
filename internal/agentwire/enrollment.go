@@ -14,6 +14,20 @@ func ValidServerURL(value string) bool {
 	return err == nil && len(value) <= 2048 && u.Scheme == "wss" && u.Hostname() != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" && u.Path == "/agent"
 }
 
+// AgentServerURL accepts the public HTTPS origin or a legacy WSS endpoint.
+func AgentServerURL(value string) (string, error) {
+	if ValidServerURL(value) {
+		return value, nil
+	}
+	u, err := url.Parse(value)
+	if err != nil || len(value) > 2048 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawPath != "" || (u.Path != "" && u.Path != "/") {
+		return "", errors.New("请填写 HTTPS 主域名，例如 https://proxy.example.com")
+	}
+	u.Scheme = "wss"
+	u.Path = "/agent"
+	return u.String(), nil
+}
+
 // The token carries its destination so the user only needs one CLI argument.
 // The destination is public metadata; only the random secret authenticates.
 func EnrollmentToken(serverURL, secret string) string {
@@ -27,10 +41,11 @@ func ParseEnrollmentToken(token string) (serverURL, secret string, err error) {
 	}
 	server, decodeErr := base64.RawURLEncoding.DecodeString(parts[1])
 	key, keyErr := hex.DecodeString(parts[2])
-	if decodeErr != nil || !ValidServerURL(string(server)) || keyErr != nil || len(key) != 32 {
+	destination, addressErr := AgentServerURL(string(server))
+	if decodeErr != nil || addressErr != nil || keyErr != nil || len(key) != 32 {
 		return "", "", errors.New("接入 Token 地址或凭证无效")
 	}
-	return string(server), parts[2], nil
+	return destination, parts[2], nil
 }
 
 var validHostname = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)

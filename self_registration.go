@@ -66,8 +66,10 @@ func (a *API) handleSaveRegistrationAddress(w http.ResponseWriter, r *http.Reque
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if !agentwire.ValidServerURL(body.ServerURL) {
-		writeError(w, 400, "请填写有效 WSS 地址")
+	if address, err := agentwire.AgentServerURL(body.ServerURL); err == nil {
+		body.ServerURL = address
+	} else {
+		writeError(w, 400, "请填写 HTTPS 主域名，例如 https://proxy.example.com")
 		return
 	}
 	h := a.proxy.agents
@@ -109,8 +111,10 @@ func (a *API) handleGenerateSelfRegistration(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if !agentwire.ValidServerURL(body.ServerURL) {
-		writeError(w, 400, "请填写有效 WSS 地址")
+	if address, err := agentwire.AgentServerURL(body.ServerURL); err == nil {
+		body.ServerURL = address
+	} else {
+		writeError(w, 400, "请填写 HTTPS 主域名，例如 https://proxy.example.com")
 		return
 	}
 	key := make([]byte, 32)
@@ -130,8 +134,10 @@ func (a *API) handlePutSelfRegistration(w http.ResponseWriter, r *http.Request) 
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if !agentwire.ValidServerURL(body.ServerURL) {
-		writeError(w, 400, "请填写有效 WSS 地址")
+	if address, err := agentwire.AgentServerURL(body.ServerURL); err == nil {
+		body.ServerURL = address
+	} else {
+		writeError(w, 400, "请填写 HTTPS 主域名，例如 https://proxy.example.com")
 		return
 	}
 	var token, secret string

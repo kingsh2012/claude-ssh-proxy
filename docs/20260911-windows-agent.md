@@ -55,11 +55,11 @@ location = /agent {
 交互更新：2026-09-14。
 
 1. 打开后台 **服务设置 → 自注册 Token**。
-2. 在公网连接地址输入框填写 Windows 可访问、已配置可信 HTTPS 证书的地址，例如 `wss://proxy.example.com/agent`，点击 **保存地址**。
+2. 在公网连接地址输入框只填写 Windows 可访问、已配置可信 HTTPS 证书的主域名，例如 `https://proxy.example.com`，点击 **保存地址**。
 3. 点击只读输入框旁的 **随机生成密钥**，再点击 **保存**。生成只产生草稿，保存成功后生效；点击输入框全选，复制完整 Token 给 Agent 使用。多台 Windows 共用此密钥。
 4. Token 在服务设置中可再次查看和复制；完整 Token 加密保存在数据库中，认证使用 SHA-256 摘要。数据库必须连同 `.db.key` 一起备份。
 
-仅传 `-token` 即可连接，因为 Token 包含服务器地址和随机密钥。后台 HTTP 地址不等于可用的 WSS 地址，需要先配置 HTTPS。修改地址并保存后，Token 中的地址同步更新，随机密钥不变；后续启动 Agent 使用更新后的完整 Token。域名不写死在 exe 中。已有主机访问权限不会被覆盖。
+仅传 `-token` 即可连接，因为 Token 包含服务器地址和随机密钥。后台 HTTP 地址不等于可用的 WSS 地址，需要先配置 HTTPS。修改地址并保存后，Token 中的地址同步更新，随机密钥不变；后续启动 Agent 使用更新后的完整 Token。域名不写死在 exe 中。Agent 的 `-server https://proxy.example.com` 及 HTTPS 地址 Token 自动转换为 `wss://proxy.example.com/agent`；旧 WSS 地址和 Token 继续可用。后台生成的 Token 保留 WSS 格式，兼容旧 Agent。页面只显示 HTTPS 主域名，`/agent` 路由在页面说明中标注。已有主机访问权限不会被覆盖。
 
 ## 4. 在 Windows 启动
 

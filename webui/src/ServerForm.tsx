@@ -7,6 +7,7 @@ import {
   ProFormSwitch,
 } from "@ant-design/pro-components";
 import { Collapse, Typography } from "antd";
+import { DownOutlined } from "@ant-design/icons";
 import type { ServerRecord, ServerCredential, ClientCredential } from "./api";
 export type ServerFormValues = ServerRecord & { credentialIds: number[] };
 export function ServerForm({
@@ -130,6 +131,9 @@ export function ServerForm({
       />
       {!agent && (
           <Collapse
+            expandIconPlacement="end"
+            expandIcon={({ isActive }) => <DownOutlined rotate={isActive ? 180 : 0} style={{ fontSize: 10, color: "#8f959e" }} />}
+            styles={{ header: { padding: "10px 0", borderTop: "1px solid #f0f0f0", color: "#646a73" }, body: { padding: "12px 0 0" } }}
             ghost
             items={[
               {

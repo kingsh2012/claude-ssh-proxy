@@ -56,8 +56,9 @@ func ValidateConfig(c Config) error {
 	if c.Hostname != "" && !agentwire.ValidHostname(c.Hostname) {
 		return errors.New("-hostname 只能包含字母、数字、点、短横线和下划线，且以字母或数字开头，最多 253 字符")
 	}
-	if !agentwire.ValidServerURL(c.ServerURL) || c.ID < 0 || len(c.Token) != 64 {
-		return errors.New("需要有效 WSS 地址及设备凭证")
+	_, addressErr := agentwire.AgentServerURL(c.ServerURL)
+	if addressErr != nil || c.ID < 0 || len(c.Token) != 64 {
+		return errors.New("需要有效 HTTPS 主域名或 WSS 地址及设备凭证")
 	}
 	return nil
 }
@@ -82,6 +83,13 @@ func Run(ctx context.Context, c Config, onError func(error)) {
 
 func Connect(ctx context.Context, c Config) error {
 	u, err := url.Parse(c.ServerURL)
+	if err == nil && u.Scheme == "https" {
+		address, addressErr := agentwire.AgentServerURL(c.ServerURL)
+		if addressErr != nil {
+			return addressErr
+		}
+		u, err = url.Parse(address)
+	}
 	if err != nil {
 		return err
 	}

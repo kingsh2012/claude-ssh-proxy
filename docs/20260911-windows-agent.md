@@ -253,3 +253,12 @@ Remove-Item -LiteralPath 'Cert:\CurrentUser\Root\55C80A83352F2133B05F832AA9E2921
 - 服务为 active/running，NRestarts=0；HTTP 静态资源、未登录接口 401 和 SSH 握手通过。正式静态资源配合模拟业务 API 验证了多选禁用、部分删除失败保留选择及重试、表单顺序、Token 生成/保存/刷新恢复、静默刷新与展开保留、宽窄屏；浏览器验证未修改生产业务数据。
 - 本机 Windows 集成测试验证：自注册后 SSH 拒绝访问，手动关联客户端凭证后可读取 Windows 文件。生产 WSS 域名仍未配置，本次未生成生产 Token 或修改生产授权。
 - 服务端二进制 SHA256：`bfb2f983dd990d660b258a0651b5183a06a418edf41d37bcf25f35a689390935`。本机 `dist/` 已同步正式服务端与 Windows Agent 包；验证记录保存在 `dist/20260914-v0.0.28/`。
+
+
+## v0.0.29 发布与部署（2026-09-14）
+
+- 已部署到 `192.168.102.7:8080`，代码提交 `729b22d`；增加服务器批量解禁，跳过已启用项。设置页左侧监听和密码表单独立排列，修复右侧生成 Token 导致密码区下移 20px 的问题。
+- [正式发布](https://github.com/kingsh2012/claude-ssh-proxy/releases/tag/v0.0.29)；[CI](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34807808259) 与 [Release](https://github.com/kingsh2012/claude-ssh-proxy/actions/runs/34807808027) 均成功。
+- 从 v0.0.28 升级，备份：`/data/claude-ssh-proxy/20260914-v0.0.29-deploy-64ewc_3b/production-backup`。全部原有数据逐项保留，包括 38 台主机、39 条授权关联、1651 条审计及现有自注册设置；数据库完整性、外键、主机密钥、数据库密钥和 systemd 配置检查通过。
+- 服务 active/running，NRestarts=0。正式静态资源配合模拟业务 API 验证批量解禁与跳过已启用项、批量禁用/删除失败重试、生成 Token 前后密码区纵坐标不变、宽窄屏与既有交互；未通过页面测试修改生产数据。
+- 服务端 SHA256：`35610927b718c7254e66fc7b64a6f51ec997117413f46a02ddb59e05725fd100`。本机 `dist/` 已同步正式程序和发布包，验证材料位于 `dist/20260914-v0.0.29/`。

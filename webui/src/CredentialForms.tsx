@@ -55,8 +55,8 @@ export function ServerCredentialForm({
       />
       <ProFormText
         name="target_user"
-        label="SSH 登录名"
-        rules={required("SSH 登录名")}
+        label="SSH登录名"
+        rules={required("SSH登录名")}
         fieldProps={{ autoComplete: "new-password" }}
       />
       <ProFormSelect

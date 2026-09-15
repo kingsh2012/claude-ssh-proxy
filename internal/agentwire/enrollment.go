@@ -21,7 +21,7 @@ func AgentServerURL(value string) (string, error) {
 	}
 	u, err := url.Parse(value)
 	if err != nil || len(value) > 2048 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawPath != "" || (u.Path != "" && u.Path != "/") {
-		return "", errors.New("请填写 HTTPS 主域名，例如 https://proxy.example.com")
+		return "", errors.New("请填写HTTPS主域名或WSS地址，例如https://proxy.example.com或wss://proxy.example.com/agent")
 	}
 	u.Scheme = "wss"
 	u.Path = "/agent"
@@ -37,13 +37,13 @@ func EnrollmentToken(serverURL, secret string) string {
 func ParseEnrollmentToken(token string) (serverURL, secret string, err error) {
 	parts := strings.Split(token, ".")
 	if len(token) > 4096 || len(parts) != 3 || parts[0] != "ops1" {
-		return "", "", errors.New("接入 Token 格式不正确，请从网页复制完整 Token")
+		return "", "", errors.New("接入Token格式不正确，请从网页复制完整Token")
 	}
 	server, decodeErr := base64.RawURLEncoding.DecodeString(parts[1])
 	key, keyErr := hex.DecodeString(parts[2])
 	destination, addressErr := AgentServerURL(string(server))
 	if decodeErr != nil || addressErr != nil || keyErr != nil || len(key) != 32 {
-		return "", "", errors.New("接入 Token 地址或凭证无效")
+		return "", "", errors.New("接入Token地址或凭证无效")
 	}
 	return destination, parts[2], nil
 }

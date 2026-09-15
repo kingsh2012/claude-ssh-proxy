@@ -2,6 +2,7 @@ import { PageContainer } from "@ant-design/pro-components";
 import { Input, Button } from "antd";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
+import { ListenerSettings } from "./ListenerSettings";
 import { SelfRegistrationSettings } from "./SelfRegistrationSettings";
 
 export function SettingsPage() {
@@ -54,11 +55,10 @@ export function SettingsPage() {
         <div className="settings-account-column">
         <section>
           <h3 className="mb-3 text-base font-semibold text-slate-900 ">
-            SSH 监听地址
+            SSH监听地址
           </h3>
           <p className="mb-2 text-sm text-slate-500 ">
-            修改后 proxy
-            会立刻重新监听新地址,已有连接不受影响,断线重连的客户端走新地址。
+            修改后proxy会立刻重新监听新地址,已有连接不受影响,断线重连的客户端走新地址。
           </p>
           <div className="settings-fields">
             <Input
@@ -75,6 +75,7 @@ export function SettingsPage() {
         </section>
 
 
+        <ListenerSettings />
         <section>
           <h3 className="mb-3 text-base font-semibold text-slate-900 ">
             修改管理员密码

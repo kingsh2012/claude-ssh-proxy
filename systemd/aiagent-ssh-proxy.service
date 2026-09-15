@@ -10,6 +10,7 @@ Group=root
 WorkingDirectory=/data/aiagent-ssh-proxy
 Environment=SSH_LISTEN_ADDR=
 Environment=WEB_LISTEN_ADDR=127.0.0.1:8080
+Environment=AGENT_LISTEN_ADDR=127.0.0.1:8081
 EnvironmentFile=-/data/aiagent-ssh-proxy/aiagent-ssh-proxy.env
 ExecStart=/data/aiagent-ssh-proxy/aiagent-ssh-proxy \
   -db /data/aiagent-ssh-proxy/aiagent-ssh-proxy.db \

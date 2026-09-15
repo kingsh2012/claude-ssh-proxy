@@ -117,7 +117,7 @@ export function ServerCredentialsPage() {
       width: 220,
       sorter: (a, b) => a.label.localeCompare(b.label),
     },
-    { title: "SSH 登录名", dataIndex: "target_user", width: 170 },
+    { title: "SSH登录名", dataIndex: "target_user", width: 170 },
     {
       title: "认证方式",
       key: "auth_type",
@@ -191,7 +191,7 @@ export function ServerCredentialsPage() {
           <ListToolbarSearch
             value={view.query}
             onSearch={view.search}
-            placeholder="搜索名称 / SSH 登录名 / 绑定服务器"
+            placeholder="搜索名称 / SSH登录名 / 绑定服务器"
           />
         }
         toolBarRender={() => [

@@ -15,7 +15,7 @@ func buildPublicKeyCallback(store *Store) func(conn ssh.ConnMetadata, key ssh.Pu
 		user := conn.User()
 		server, err := store.ResolveServer(user)
 		if err != nil || !server.Enabled {
-			return nil, fmt.Errorf("用户 %q 不可用", user)
+			return nil, fmt.Errorf("用户 %q不可用", user)
 		}
 		creds, err := store.ListClientCredentialsForServerID(server.ID)
 		if err != nil {
@@ -46,7 +46,7 @@ func buildPasswordCallback(store *Store) func(conn ssh.ConnMetadata, password []
 		user := conn.User()
 		server, err := store.ResolveServer(user)
 		if err != nil || !server.Enabled {
-			return nil, fmt.Errorf("用户 %q 不可用", user)
+			return nil, fmt.Errorf("用户 %q不可用", user)
 		}
 		creds, err := store.ListClientCredentialsForServerID(server.ID)
 		if err != nil {

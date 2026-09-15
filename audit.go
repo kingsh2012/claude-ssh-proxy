@@ -32,10 +32,10 @@ type auditSession struct {
 	mu         sync.Mutex
 	dbID       int64 // 0 表示还没插入过
 	eventType  string
-	command    string // 只在 exec 场景下有值:命令原文
+	command    string // 只在exec场景下有值:命令原文
 	output     strings.Builder
 	outputTr   bool
-	detail     strings.Builder // shell/subsystem 场景下客户端敲的原始内容
+	detail     strings.Builder // shell/subsystem场景下客户端敲的原始内容
 	detailTr   bool
 	exitStatus *int
 }

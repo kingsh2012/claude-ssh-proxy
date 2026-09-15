@@ -47,13 +47,13 @@ export function ServerForm({
       <ProFormText
         name="proxy_user"
         label="代理登录名"
-        placeholder="例如 server-01"
+        placeholder="例如server-01"
         rules={[{ required: true, message: "请输入代理登录名" }]}
         fieldProps={{ readOnly: agent, autoComplete: "off" }}
       />
       {agent ? (
         <Typography.Paragraph type="secondary">
-          此主机由 Agent 自动注册，可调整访问凭证。
+          此主机由Agent自动注册，可调整访问凭证。
         </Typography.Paragraph>
       ) : (
         <>
@@ -69,7 +69,7 @@ export function ServerForm({
           <ProFormText
             name="target_host"
             label="目标地址"
-            placeholder="请输入 IP 或域名"
+            placeholder="请输入IP或域名"
             rules={[{ required: true, message: "请输入目标地址" }]}
           />
           <ProFormDependency name={["route_mode"]}>
@@ -97,10 +97,10 @@ export function ServerForm({
               ) : (
                 <ProFormDigit
                   name="target_port"
-                  label="SSH 端口"
+                  label="SSH端口"
                   min={1}
                   max={65535}
-                  rules={[{ required: true, message: "请输入 SSH 端口" }]}
+                  rules={[{ required: true, message: "请输入SSH端口" }]}
                 />
               )
             }
@@ -148,9 +148,9 @@ export function ServerForm({
                     />
                     <ProFormText
                       name="host_key_fingerprint"
-                      label="Host Key 指纹"
+                      label="Host Key指纹"
                       placeholder="SHA256:..."
-                      extra="在目标主机执行 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub 获取。"
+                      extra="在目标主机执行ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub获取。"
                     />
                   </>
                 ),

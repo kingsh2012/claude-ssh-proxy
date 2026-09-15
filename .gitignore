@@ -19,3 +19,6 @@ agent-config.toml
 
 webui/src/.umi/
 webui/src/.umi-production/
+
+# Deployment-local CA keys and TLS certificates
+.local/

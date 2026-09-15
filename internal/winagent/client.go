@@ -37,14 +37,14 @@ func LoadConfig(path string) (Config, error) {
 		return c, err
 	}
 	if len(data) > 16*1024 {
-		return c, errors.New("Agent 配置文件不能超过 16 KiB")
+		return c, errors.New("Agent配置文件不能超过 16 KiB")
 	}
 	// Accept UTF-8 BOM from Windows editors, plus ordinary UTF-8 and CRLF.
 	data = bytes.TrimPrefix(data, []byte{0xef, 0xbb, 0xbf})
 	d := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields()
 	if err = d.Decode(&c); err != nil {
 		// Parser diagnostics can include source lines containing credentials.
-		return c, errors.New("Agent TOML 配置无效，请检查 UTF-8 编码、字段名、引号及重复字段")
+		return c, errors.New("Agent TOML配置无效，请检查UTF-8 编码、字段名、引号及重复字段")
 	}
 	if err := ValidateConfig(c); err != nil {
 		return c, err
@@ -54,16 +54,16 @@ func LoadConfig(path string) (Config, error) {
 
 func ValidateConfig(c Config) error {
 	if c.Hostname != "" && !agentwire.ValidHostname(c.Hostname) {
-		return errors.New("-hostname 只能包含字母、数字、点、短横线和下划线，且以字母或数字开头，最多 253 字符")
+		return errors.New("-hostname只能包含字母、数字、点、短横线和下划线，且以字母或数字开头，最多 253 字符")
 	}
 	_, addressErr := agentwire.AgentServerURL(c.ServerURL)
 	if addressErr != nil || c.ID < 0 || len(c.Token) != 64 {
-		return errors.New("需要有效 HTTPS 主域名或 WSS 地址及设备凭证")
+		return errors.New("需要有效HTTPS主域名或WSS地址及设备凭证")
 	}
 	return nil
 }
 
-// Run reconnects but never replays a command. TLS uses the system trust store.
+// Run reconnects but never replays a command. TLS trusts system roots and the embedded CA.
 func Run(ctx context.Context, c Config, onError func(error)) {
 	for {
 		err := Connect(ctx, c)
@@ -105,11 +105,15 @@ func Connect(ctx context.Context, c Config) error {
 		}
 	}
 	if !agentwire.ValidHostname(hostname) {
-		return errors.New("代理登录名无效，请使用 -hostname 指定")
+		return errors.New("代理登录名无效，请使用 -hostname指定")
 	}
 	q.Set("hostname", hostname)
 	u.RawQuery = q.Encode()
-	d := websocket.Dialer{HandshakeTimeout: 15 * time.Second, Proxy: http.ProxyFromEnvironment, Subprotocols: []string{"claude-agent-v1"}}
+	tlsConfig, err := clientTLSConfig(embeddedCABase64)
+	if err != nil {
+		return err
+	}
+	d := websocket.Dialer{TLSClientConfig: tlsConfig, HandshakeTimeout: 15 * time.Second, Proxy: http.ProxyFromEnvironment, Subprotocols: []string{"claude-agent-v1"}}
 	raw, resp, err := d.DialContext(ctx, u.String(), http.Header{"Authorization": []string{"Bearer " + c.Token}})
 	if err != nil {
 		if resp != nil {

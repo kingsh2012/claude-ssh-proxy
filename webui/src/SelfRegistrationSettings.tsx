@@ -7,12 +7,6 @@ import {
   type SelfRegistration,
 } from "./api";
 
-function displayAddress(value: SelfRegistration): SelfRegistration {
-  if (!value.server_url) return value;
-  const url = new URL(value.server_url);
-  return { ...value, server_url: `https://${url.host}` };
-}
-
 export function SelfRegistrationSettings() {
   const { confirm } = useFeedback();
   const [settings, setSettings] = useState<SelfRegistration | null>(null);
@@ -29,7 +23,6 @@ export function SelfRegistrationSettings() {
 
   useEffect(() => {
     api.getSelfRegistration()
-      .then(displayAddress)
       .then((value) => {
         setSettings(value);
         setToken(value.token);
@@ -59,7 +52,7 @@ export function SelfRegistrationSettings() {
     if (
       settings?.enabled && token !== settings.token &&
       !(await confirm(
-        "保存新密钥后，旧密钥失效，使用它的 Agent 会断开。需要用新密钥重新启动，继续？",
+        "保存新密钥后，旧密钥失效，使用它的Agent会断开。需要用新密钥重新启动，继续？",
       ))
     )
       return;
@@ -68,12 +61,12 @@ export function SelfRegistrationSettings() {
     setMessage("");
     try {
       setSettings(
-        displayAddress(await api.putSelfRegistration({
+        await api.putSelfRegistration({
           token,
           server_url: address,
-        })),
+        }),
       );
-      setMessage("自注册 Token 已生效");
+      setMessage("服务器自注册已生效");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "保存失败");
     } finally {
@@ -85,7 +78,7 @@ export function SelfRegistrationSettings() {
     setError("");
     setMessage("");
     try {
-      const value = displayAddress(await api.saveRegistrationAddress(address));
+      const value = await api.saveRegistrationAddress(address);
       setSettings(value);
       setAddress(value.server_url);
       setToken(value.token);
@@ -102,14 +95,13 @@ export function SelfRegistrationSettings() {
     <section className="registration-card">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-base font-semibold">自注册 Token</h3>
+          <h3 className="text-base font-semibold">服务器自注册</h3>
           <span className="text-xs text-slate-500">
             {settings ? (settings.enabled ? "已启用" : "未启用") : "加载中…"}
           </span>
         </div>
         <p className="text-sm text-slate-500">
-          多台 Windows 共用此密钥，启动 Agent
-          后自动加入服务器列表。注册后需在服务器列表中手动授权，才能通过 SSH 代理访问。
+          多台Windows共用此密钥，启动Agent后自动加入服务器列表。注册后需在服务器列表中手动授权，才能通过SSH代理访问。
         </p>
         <label htmlFor="registration-address" className="block text-sm">公网连接地址</label>
         <div className="registration-key-row">
@@ -118,20 +110,20 @@ export function SelfRegistrationSettings() {
             value={address}
             disabled={busy}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder="https://proxy.example.com"
+            placeholder="wss://proxy.example.com/agent或https://proxy.example.com"
           />
           <Button onClick={saveAddress} disabled={!settings || busy || !address || address === settings.server_url}>
             保存地址
           </Button>
         </div>
         <p className="text-xs text-slate-500">
-          只填写 HTTPS 主域名，例如 https://proxy.example.com，不需要附加路径。
-          Agent 通信使用 /agent 路由，自动通过 WSS 连接；地址已包含在 Token 中。
+          支持wss://proxy.example.com/agent或https://proxy.example.com。
+          HTTPS地址自动转换为WSS连接，地址会包含在Token中。公网只需转发/agent，管理后台可留在内网。
         </p>
         <div className="registration-key-row">
           <Input
             id="registration-token"
-            aria-label="自注册 Token"
+            aria-label="服务器自注册"
             className="font-mono text-xs"
             autoComplete="off"
             readOnly
@@ -150,9 +142,9 @@ export function SelfRegistrationSettings() {
           <p className="text-sm text-amber-700">连接地址已修改，请先保存地址，再生成密钥。</p>
         )}
         <p className="text-sm text-slate-500">
-          默认使用 Windows 主机名作为代理登录名，也可指定：
+          默认使用Windows主机名作为代理登录名，也可指定：
         </p>
-        <pre className="agent-command">{`.\\aiagent-ssh-client.exe -token '${token || "自注册Token"}' -hostname 'es-windows-01'`}</pre>
+        <pre className="agent-command">{`.\\aiagent-ssh-client.exe -token '${token || "服务器自注册Token"}' -hostname 'es-windows-01'`}</pre>
         {message && <p className="text-sm text-emerald-600">{message}</p>}
         {error && (
           <p role="alert" className="text-sm text-red-600">

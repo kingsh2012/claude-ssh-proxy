@@ -13,19 +13,19 @@ import (
 )
 
 func main() {
-	path := flag.String("config", "", "可选：读取旧 TOML 配置")
-	token := flag.String("token", "", "服务设置中的自注册 Token")
-	server := flag.String("server", "", "可选：覆盖 HTTPS 主域名（兼容 WSS 地址），或与旧设备凭证配合使用")
-	hostname := flag.String("hostname", "", "可选：指定代理登录名，默认使用 Windows 主机名")
+	path := flag.String("config", "", "可选：读取旧TOML配置")
+	token := flag.String("token", "", "服务设置中的服务器自注册Token")
+	server := flag.String("server", "", "可选：覆盖HTTPS主域名（兼容WSS地址），或与旧设备凭证配合使用")
+	hostname := flag.String("hostname", "", "可选：指定代理登录名，默认使用Windows主机名")
 	flag.Parse()
 	if runtime.GOOS != "windows" {
-		log.Fatal("此 Agent 仅支持 Windows")
+		log.Fatal("此Agent仅支持Windows")
 	}
 	var c winagent.Config
 	var err error
 	if *path != "" {
 		if *token != "" || *server != "" {
-			log.Fatal("-config 不能与 -token/-server 混用")
+			log.Fatal("-config不能与 -token/-server混用")
 		}
 		c, err = winagent.LoadConfig(*path)
 	} else if *token != "" {
@@ -42,7 +42,7 @@ func main() {
 		}
 	} else {
 		flag.Usage()
-		log.Fatal("请使用 -token 指定网页申请的接入 Token")
+		log.Fatal("请使用 -token指定网页申请的接入Token")
 	}
 	if *hostname != "" {
 		c.Hostname = *hostname
@@ -55,6 +55,6 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	log.Print("Windows Agent 启动；退出程序将终止当前任务")
+	log.Print("Windows Agent启动；退出程序将终止当前任务")
 	winagent.Run(ctx, c, func(err error) { log.Printf("%v；5 秒后重连", err) })
 }

@@ -69,7 +69,7 @@ func (a *API) handleSaveRegistrationAddress(w http.ResponseWriter, r *http.Reque
 	if address, err := agentwire.AgentServerURL(body.ServerURL); err == nil {
 		body.ServerURL = address
 	} else {
-		writeError(w, 400, "请填写 HTTPS 主域名，例如 https://proxy.example.com")
+		writeError(w, 400, "请填写HTTPS主域名或WSS地址，例如https://proxy.example.com或wss://proxy.example.com/agent")
 		return
 	}
 	h := a.proxy.agents
@@ -114,7 +114,7 @@ func (a *API) handleGenerateSelfRegistration(w http.ResponseWriter, r *http.Requ
 	if address, err := agentwire.AgentServerURL(body.ServerURL); err == nil {
 		body.ServerURL = address
 	} else {
-		writeError(w, 400, "请填写 HTTPS 主域名，例如 https://proxy.example.com")
+		writeError(w, 400, "请填写HTTPS主域名或WSS地址，例如https://proxy.example.com或wss://proxy.example.com/agent")
 		return
 	}
 	key := make([]byte, 32)
@@ -137,7 +137,7 @@ func (a *API) handlePutSelfRegistration(w http.ResponseWriter, r *http.Request) 
 	if address, err := agentwire.AgentServerURL(body.ServerURL); err == nil {
 		body.ServerURL = address
 	} else {
-		writeError(w, 400, "请填写 HTTPS 主域名，例如 https://proxy.example.com")
+		writeError(w, 400, "请填写HTTPS主域名或WSS地址，例如https://proxy.example.com或wss://proxy.example.com/agent")
 		return
 	}
 	var token, secret string
@@ -163,7 +163,7 @@ func (a *API) handlePutSelfRegistration(w http.ResponseWriter, r *http.Request) 
 	hash := sha256.Sum256([]byte(secret))
 	encrypted, err := a.store.encryptSecret(token)
 	if err != nil {
-		writeError(w, 500, "保存 Token 失败")
+		writeError(w, 500, "保存Token失败")
 		return
 	}
 	// Use the same lock as WebSocket registration so a rotation cannot admit an old peer.

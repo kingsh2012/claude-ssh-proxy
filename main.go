@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 )
 
@@ -12,10 +11,11 @@ import (
 var version = "dev"
 
 func main() {
-	dbPath := flag.String("db", "aiagent-ssh-proxy.db", "SQLite 数据库文件路径")
-	hostKeyPath := flag.String("host-key", "host_key", "proxy 自身 SSH host key 文件路径")
-	webAddr := flag.String("web-addr", envOrDefault("WEB_LISTEN_ADDR", "127.0.0.1:8080"), "Web 管理后台监听地址")
-	sshAddr := flag.String("ssh-addr", os.Getenv("SSH_LISTEN_ADDR"), "覆盖并保存 SSH 代理监听地址(留空时使用数据库配置,首次默认 :2222)")
+	dbPath := flag.String("db", "aiagent-ssh-proxy.db", "SQLite数据库文件路径")
+	hostKeyPath := flag.String("host-key", "host_key", "proxy自身SSH host key文件路径")
+	webAddr := flag.String("web-addr", "", "覆盖并保存Web管理后台监听地址（仅HTTP）")
+	agentAddr := flag.String("agent-addr", "", "覆盖并保存独立Agent监听地址")
+	sshAddr := flag.String("ssh-addr", os.Getenv("SSH_LISTEN_ADDR"), "覆盖并保存SSH代理监听地址(留空时使用数据库配置,首次默认 :2222)")
 	adminUser := flag.String("bootstrap-admin-user", "admin", "首次启动时自动创建的管理员用户名(仅当数据库里还没有任何管理员账号时生效)")
 	adminPassword := flag.String("bootstrap-admin-password", "admin", "首次启动时自动创建的管理员初始密码(仅当数据库里还没有任何管理员账号时生效,登录后会被强制要求修改)")
 	showVersion := flag.Bool("version", false, "打印版本号并退出")
@@ -39,7 +39,7 @@ func main() {
 			}
 		}
 	}
-	log.Printf("aiagent-ssh-proxy %s 启动中...", version)
+	log.Printf("aiagent-ssh-proxy %s启动中...", version)
 
 	store, err := OpenStore(*dbPath)
 	if err != nil {
@@ -59,31 +59,53 @@ func main() {
 
 	proxy, err := NewProxy(store, *hostKeyPath)
 	if err != nil {
-		log.Fatalf("初始化 aiagent-ssh-proxy 失败: %v", err)
+		log.Fatalf("初始化aiagent-ssh-proxy失败: %v", err)
 	}
 	listenAddr := store.GetSetting("listen_addr", ":2222")
 	if *sshAddr != "" {
 		listenAddr = *sshAddr
 	}
 	if err := proxy.Start(listenAddr); err != nil {
-		log.Fatalf("启动 aiagent-ssh-proxy 失败: %v", err)
+		log.Fatalf("启动aiagent-ssh-proxy失败: %v", err)
 	}
 	if *sshAddr != "" {
 		if err := store.SetSetting("listen_addr", listenAddr); err != nil {
-			log.Fatalf("保存 SSH 监听地址失败: %v", err)
+			log.Fatalf("保存SSH监听地址失败: %v", err)
 		}
 	}
 
-	api := NewAPI(store, proxy)
-	mux := http.NewServeMux()
-	mux.Handle("/api/", api.Router())
-	mux.HandleFunc("GET /agent", proxy.agents.ServeHTTP)
-	mux.Handle("/", webUIHandler())
-
-	log.Printf("Web 管理后台正在监听 %s", *webAddr)
-	if err := http.ListenAndServe(*webAddr, mux); err != nil {
-		log.Fatalf("Web 服务启动失败: %v", err)
+	settings := store.listenerSettings()
+	// Import legacy environment defaults only until settings are first saved.
+	if store.GetSetting("web_listen_addr", "") == "" {
+		settings.WebAddr = envOrDefault("WEB_LISTEN_ADDR", settings.WebAddr)
 	}
+	if store.GetSetting("agent_listen_addr", "") == "" {
+		settings.AgentAddr = envOrDefault("AGENT_LISTEN_ADDR", settings.AgentAddr)
+	}
+	if override := os.Getenv("WEB_LISTEN_ADDR_OVERRIDE"); override != "" {
+		settings.WebAddr = override
+	}
+	if *webAddr != "" {
+		settings.WebAddr = *webAddr
+	}
+	if *agentAddr != "" {
+		settings.AgentAddr = *agentAddr
+	}
+	api := NewAPI(store, proxy)
+	listeners, err := openListeners(settings, webRouter(api.Router()), agentRouter(proxy.agents))
+	if err != nil {
+		log.Fatalf("初始化Web/Agent监听失败: %v", err)
+	}
+	if err := store.saveListenerSettings(settings); err != nil {
+		listeners.Close()
+		log.Fatalf("保存Web/Agent监听设置失败: %v", err)
+	}
+	log.Printf("Web管理后台正在监听http://%s", settings.WebAddr)
+	log.Printf("独立Agent正在监听%s，内置TLS=%t", settings.AgentAddr, settings.AgentTLSEnabled)
+	if err := listeners.Serve(); err != nil {
+		log.Fatalf("Web/Agent监听停止: %v", err)
+	}
+
 }
 
 func envOrDefault(key, fallback string) string {

@@ -14,6 +14,7 @@ backup_dir=""
 ssh_listen_addr=""
 web_listen_addr=""
 ssh_addr_provided=false
+web_addr_provided=false
 had_binary=false
 had_unit=false
 had_config=false
@@ -44,6 +45,7 @@ while [[ $# -gt 0 ]]; do
         ssh_addr_provided=true
       else
         web_listen_addr=$2
+        web_addr_provided=true
       fi
       shift 2
       ;;
@@ -209,6 +211,9 @@ install -m 0644 -o root -g root "${SOURCE_UNIT}" "${UNIT_PATH}"
 {
   printf 'SSH_LISTEN_ADDR=%s\n' "${ssh_listen_addr}"
   printf 'WEB_LISTEN_ADDR=%s\n' "${web_listen_addr}"
+  if [[ ${web_addr_provided} == true ]]; then
+    printf 'WEB_LISTEN_ADDR_OVERRIDE=%s\n' "${web_listen_addr}"
+  fi
 } > "${CONFIG_PATH}.new"
 chmod 0600 "${CONFIG_PATH}.new"
 chown root:root "${CONFIG_PATH}.new"
@@ -229,7 +234,7 @@ if ! systemctl is-active --quiet "${SERVICE_NAME}.service"; then
   false
 fi
 
-# SSH 覆盖值已由程序写入数据库,清空环境变量以免后续重启覆盖网页中的新配置。
+# 显式SSH/Web覆盖值已写入数据库，清除一次性覆盖，以免重启覆盖网页配置。
 {
   printf 'SSH_LISTEN_ADDR=\n'
   printf 'WEB_LISTEN_ADDR=%s\n' "${web_listen_addr}"

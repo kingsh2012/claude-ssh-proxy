@@ -58,7 +58,7 @@ func (a *API) handleCreateEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !agentwire.ValidServerURL(body.ServerURL) || len(body.Label) > 120 || len(body.Credentials) == 0 || len(body.Credentials) > 64 {
-		writeError(w, 400, "请填写有效 WSS 地址，并选择至少一份客户端凭证")
+		writeError(w, 400, "请填写有效WSS地址，并选择至少一份客户端凭证")
 		return
 	}
 	if body.Label == "" {
@@ -66,25 +66,25 @@ func (a *API) handleCreateEnrollment(w http.ResponseWriter, r *http.Request) {
 	}
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
-		writeError(w, 500, "生成 Token 失败")
+		writeError(w, 500, "生成Token失败")
 		return
 	}
 	secret := hex.EncodeToString(key)
 	hash := sha256.Sum256([]byte(secret))
 	tx, err := a.store.db.Begin()
 	if err != nil {
-		writeError(w, 500, "保存 Token 失败")
+		writeError(w, 500, "保存Token失败")
 		return
 	}
 	defer tx.Rollback()
 	result, err := tx.Exec(`INSERT INTO agent_enrollments(label,token_hash) VALUES(?,?)`, body.Label, hex.EncodeToString(hash[:]))
 	if err != nil {
-		writeError(w, 500, "保存 Token 失败")
+		writeError(w, 500, "保存Token失败")
 		return
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
-		writeError(w, 500, "保存 Token 失败")
+		writeError(w, 500, "保存Token失败")
 		return
 	}
 	seen := map[int64]bool{}
@@ -99,7 +99,7 @@ func (a *API) handleCreateEnrollment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if tx.Commit() != nil {
-		writeError(w, 500, "保存 Token 失败")
+		writeError(w, 500, "保存Token失败")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -109,7 +109,7 @@ func (a *API) handleCreateEnrollment(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleListEnrollments(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.store.db.Query(`SELECT e.id,e.label,e.enabled,e.used,e.hostname,COALESCE(s.proxy_user,''),e.created_at FROM agent_enrollments e LEFT JOIN servers s ON s.id=e.server_id ORDER BY e.id DESC`)
 	if err != nil {
-		writeError(w, 500, "读取接入 Token 失败")
+		writeError(w, 500, "读取接入Token失败")
 		return
 	}
 	defer rows.Close()
@@ -117,13 +117,13 @@ func (a *API) handleListEnrollments(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var e Enrollment
 		if rows.Scan(&e.ID, &e.Label, &e.Enabled, &e.Used, &e.Hostname, &e.ProxyUser, &e.CreatedAt) != nil {
-			writeError(w, 500, "读取接入 Token 失败")
+			writeError(w, 500, "读取接入Token失败")
 			return
 		}
 		out = append(out, e)
 	}
 	if rows.Err() != nil {
-		writeError(w, 500, "读取接入 Token 失败")
+		writeError(w, 500, "读取接入Token失败")
 		return
 	}
 	writeJSON(w, out)
@@ -132,7 +132,7 @@ func (a *API) handleListEnrollments(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleRevokeEnrollment(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, 400, "无效的 Token 编号")
+		writeError(w, 400, "无效的Token编号")
 		return
 	}
 	tx, err := a.store.db.Begin()
@@ -148,7 +148,7 @@ func (a *API) handleRevokeEnrollment(w http.ResponseWriter, r *http.Request) {
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		writeError(w, 404, "Token 不存在")
+		writeError(w, 404, "Token不存在")
 		return
 	}
 	var sid sql.NullInt64

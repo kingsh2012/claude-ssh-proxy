@@ -34,11 +34,11 @@ func OpenStore(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("临时关闭 SQLite 外键失败: %w", err)
+		return nil, fmt.Errorf("临时关闭SQLite外键失败: %w", err)
 	}
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("设置 WAL 模式失败: %w", err)
+		return nil, fmt.Errorf("设置WAL模式失败: %w", err)
 	}
 
 	key, err := loadOrCreateSecretKey(path)
@@ -68,12 +68,12 @@ func OpenStore(path string) (*Store, error) {
 	}
 	if _, err := db.Exec(`PRAGMA foreign_keys=ON`); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("启用 SQLite 外键失败: %w", err)
+		return nil, fmt.Errorf("启用SQLite外键失败: %w", err)
 	}
 	var foreignKeys int
 	if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&foreignKeys); err != nil || foreignKeys != 1 {
 		db.Close()
-		return nil, fmt.Errorf("SQLite 外键未能启用")
+		return nil, fmt.Errorf("SQLite外键未能启用")
 	}
 	db.SetMaxOpenConns(8)
 	return s, nil
@@ -105,7 +105,7 @@ func loadOrCreateSecretKey(dbPath string) ([]byte, error) {
 	data, err := os.ReadFile(keyPath)
 	if err == nil {
 		if len(data) != len(key) {
-			return nil, fmt.Errorf("凭证加密密钥 %s 长度无效", keyPath)
+			return nil, fmt.Errorf("凭证加密密钥 %s长度无效", keyPath)
 		}
 		if err := os.Chmod(keyPath, 0600); err != nil {
 			return nil, fmt.Errorf("收紧凭证加密密钥权限失败: %w", err)
@@ -235,7 +235,7 @@ func (s *Store) migrateServersToAutoIncrementID() error {
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.Exec(stmt); err != nil {
-			return fmt.Errorf("迁移 servers 表失败 (%s): %w", stmt, err)
+			return fmt.Errorf("迁移servers表失败 (%s): %w", stmt, err)
 		}
 	}
 	return tx.Commit()
@@ -463,7 +463,7 @@ type AdminUser struct {
 	ID           int64
 	Username     string
 	PasswordHash string
-	Initialized  bool // false 表示还在用初始密码,前端应强制要求先改密码
+	Initialized  bool // false表示还在用初始密码,前端应强制要求先改密码
 }
 
 func (s *Store) CountAdminUsers() (int, error) {
@@ -507,7 +507,7 @@ func (s *Store) SetAdminPassword(username, password string) error {
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return fmt.Errorf("管理员用户 %q 不存在", username)
+		return fmt.Errorf("管理员用户 %q不存在", username)
 	}
 	return nil
 }
@@ -601,22 +601,22 @@ func (s *Store) resolveServerCredential(r *ServerRecord) error {
 		FROM server_credentials WHERE id = ?`, *r.ServerCredentialID).
 		Scan(&label, &targetUser, &authType, &pw, &pk, &pp)
 	if err != nil {
-		return fmt.Errorf("共享凭证 %d 不存在: %w", *r.ServerCredentialID, err)
+		return fmt.Errorf("共享凭证 %d不存在: %w", *r.ServerCredentialID, err)
 	}
 	r.ServerCredentialLabel = label
 	r.TargetUser = targetUser
 	r.AuthType = authType
 	r.AuthPassword, err = s.decryptSecret(pw.String)
 	if err != nil {
-		return fmt.Errorf("解密服务器凭证 %d 的密码失败: %w", *r.ServerCredentialID, err)
+		return fmt.Errorf("解密服务器凭证 %d的密码失败: %w", *r.ServerCredentialID, err)
 	}
 	r.AuthPrivateKey, err = s.decryptSecret(pk.String)
 	if err != nil {
-		return fmt.Errorf("解密服务器凭证 %d 的私钥失败: %w", *r.ServerCredentialID, err)
+		return fmt.Errorf("解密服务器凭证 %d的私钥失败: %w", *r.ServerCredentialID, err)
 	}
 	r.AuthPrivateKeyPassphrase, err = s.decryptSecret(pp.String)
 	if err != nil {
-		return fmt.Errorf("解密服务器凭证 %d 的私钥密码失败: %w", *r.ServerCredentialID, err)
+		return fmt.Errorf("解密服务器凭证 %d的私钥密码失败: %w", *r.ServerCredentialID, err)
 	}
 	return nil
 }
@@ -786,7 +786,7 @@ func (s *Store) UpsertServer(r ServerRecord) error {
 		}
 	}
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
-		return fmt.Errorf("代理登录名 %q 已存在", r.ProxyUser)
+		return fmt.Errorf("代理登录名 %q已存在", r.ProxyUser)
 	}
 	return err
 }
@@ -799,7 +799,7 @@ func (s *Store) SetServerEnabled(proxyUser string, enabled bool) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("服务器 %q 不存在", proxyUser)
+		return fmt.Errorf("服务器 %q不存在", proxyUser)
 	}
 	return nil
 }
@@ -963,7 +963,7 @@ func (s *Store) UpdateServerCredential(id int64, c ServerCredential) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("服务器凭证 %d 不存在", id)
+		return fmt.Errorf("服务器凭证 %d不存在", id)
 	}
 	return nil
 }
@@ -976,7 +976,7 @@ func (s *Store) DeleteServerCredential(id int64) error {
 		return err
 	}
 	if len(proxyUsers) > 0 {
-		return fmt.Errorf("还有 %d 台服务器在使用这份凭证(%s),请先改成其他凭证或单独指定认证方式,再删除",
+		return fmt.Errorf("还有 %d台服务器在使用这份凭证(%s),请先改成其他凭证或单独指定认证方式,再删除",
 			len(proxyUsers), strings.Join(proxyUsers, ", "))
 	}
 	_, err = s.db.Exec(`DELETE FROM server_credentials WHERE id = ?`, id)
@@ -1002,7 +1002,7 @@ func (s *Store) SetServerCredentialServers(credID int64, proxyUsers []string) er
 			return err
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
-			return fmt.Errorf("服务器 %q 不存在", ru)
+			return fmt.Errorf("服务器 %q不存在", ru)
 		}
 	}
 	return tx.Commit()
@@ -1022,7 +1022,7 @@ type ClientCredential struct {
 	HasPassword bool     `json:"has_password"`       // 只读,告知前端当前是否已设置密码
 	ProxyUsers  []string `json:"proxy_users"`
 
-	passwordHash string // 内部字段,不参与 JSON 序列化,供认证时比对
+	passwordHash string // 内部字段,不参与JSON序列化,供认证时比对
 }
 
 func scanClientCredential(scan func(dest ...any) error) (ClientCredential, error) {
@@ -1158,7 +1158,7 @@ func (s *Store) CreateClientCredential(c ClientCredential, proxyUsers []string) 
 func (s *Store) UpdateClientCredential(id int64, c ClientCredential, proxyUsers []string) error {
 	existing, err := s.GetClientCredential(id)
 	if err != nil {
-		return fmt.Errorf("客户端凭证 %d 不存在", id)
+		return fmt.Errorf("客户端凭证 %d不存在", id)
 	}
 	pubKey, pwHash, err := clientCredentialAuthColumns(c, existing)
 	if err != nil {
@@ -1177,7 +1177,7 @@ func (s *Store) UpdateClientCredential(id int64, c ClientCredential, proxyUsers 
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("客户端凭证 %d 不存在", id)
+		return fmt.Errorf("客户端凭证 %d不存在", id)
 	}
 
 	if _, err := tx.Exec(`DELETE FROM server_client_credentials WHERE client_credential_id = ?`, id); err != nil {
@@ -1214,7 +1214,7 @@ func clientCredentialAuthColumns(c ClientCredential, existing *ClientCredential)
 			pwHash = sql.NullString{String: existing.passwordHash, Valid: existing.passwordHash != ""}
 		}
 	default:
-		return pubKey, pwHash, fmt.Errorf("auth_type 必须是 public_key 或 password")
+		return pubKey, pwHash, fmt.Errorf("auth_type必须是public_key或password")
 	}
 	return pubKey, pwHash, nil
 }

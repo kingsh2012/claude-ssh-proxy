@@ -17,21 +17,21 @@ func loadOrCreateHostKey(path string) (ssh.Signer, error) {
 		return ssh.ParsePrivateKey(data)
 	}
 	if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("读取 host key 失败: %w", err)
+		return nil, fmt.Errorf("读取host key失败: %w", err)
 	}
 
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, fmt.Errorf("生成 host key 失败: %w", err)
+		return nil, fmt.Errorf("生成host key失败: %w", err)
 	}
 
 	block, err := ssh.MarshalPrivateKey(priv, "aiagent-ssh-proxy host key")
 	if err != nil {
-		return nil, fmt.Errorf("序列化 host key 失败: %w", err)
+		return nil, fmt.Errorf("序列化host key失败: %w", err)
 	}
 	pemBytes := pem.EncodeToMemory(block)
 	if err := os.WriteFile(path, pemBytes, 0600); err != nil {
-		return nil, fmt.Errorf("写入 host key 失败: %w", err)
+		return nil, fmt.Errorf("写入host key失败: %w", err)
 	}
 
 	return ssh.ParsePrivateKey(pemBytes)

@@ -66,6 +66,8 @@ func (a *API) Router() http.Handler {
 	mux.HandleFunc("GET /api/settings/agent-registration", a.auth(a.handleGetSelfRegistration))
 	mux.HandleFunc("PUT /api/settings/agent-registration", a.auth(a.handlePutSelfRegistration))
 	mux.HandleFunc("DELETE /api/settings/agent-registration", a.auth(a.handleDisableSelfRegistration))
+	mux.HandleFunc("GET /api/settings/listeners", a.auth(a.handleGetListeners))
+	mux.HandleFunc("PUT /api/settings/listeners", a.auth(a.handlePutListeners))
 	mux.HandleFunc("GET /api/settings", a.auth(a.handleGetSettings))
 	mux.HandleFunc("PUT /api/settings", a.auth(a.handleUpdateSettings))
 
@@ -234,7 +236,7 @@ func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 	}
 	if server.ConnectionType == "agent" {
 		if server.RouteMode != "" && server.RouteMode != "fixed" {
-			writeError(w, 400, "Agent 仅支持固定登录名")
+			writeError(w, 400, "Agent仅支持固定登录名")
 			return
 		}
 		server.TargetHost = "Windows Agent"
@@ -243,7 +245,7 @@ func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 		server.HostKeyFingerprint = ""
 	}
 	if server.ProxyUser == "" || server.TargetHost == "" {
-		writeError(w, http.StatusBadRequest, "proxy_user / target_host 不能为空")
+		writeError(w, http.StatusBadRequest, "proxy_user / target_host不能为空")
 		return
 	}
 	switch server.RouteMode {
@@ -257,13 +259,13 @@ func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 			server.TargetPort = 22
 		}
 		if server.TargetPort < 1 || server.TargetPort > 65535 {
-			writeError(w, http.StatusBadRequest, "target_port 必须在 1-65535 之间")
+			writeError(w, http.StatusBadRequest, "target_port必须在 1-65535 之间")
 			return
 		}
 		server.PortMin, server.PortMax = 1, 65535
 	case "dynamic_port":
 		if strings.Count(server.ProxyUser, "${PORT}") != 1 || !strings.HasSuffix(server.ProxyUser, "${PORT}") || server.ProxyUser == "${PORT}" {
-			writeError(w, http.StatusBadRequest, "动态端口模式的代理登录名必须是非空前缀加 ${PORT},例如 server-${PORT}")
+			writeError(w, http.StatusBadRequest, "动态端口模式的代理登录名必须是非空前缀加 ${PORT},例如server-${PORT}")
 			return
 		}
 		if server.PortMin < 1 || server.PortMax > 65535 || server.PortMin > server.PortMax {
@@ -272,12 +274,12 @@ func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 		}
 		server.TargetPort = 0
 	default:
-		writeError(w, http.StatusBadRequest, "route_mode 必须是 fixed 或 dynamic_port")
+		writeError(w, http.StatusBadRequest, "route_mode必须是fixed或dynamic_port")
 		return
 	}
 	server.HostKeyFingerprint = strings.TrimSpace(server.HostKeyFingerprint)
 	if server.HostKeyFingerprint != "" && !validSHA256Fingerprint(server.HostKeyFingerprint) {
-		writeError(w, http.StatusBadRequest, "host_key_fingerprint 必须是合法的 SHA256 SSH 指纹")
+		writeError(w, http.StatusBadRequest, "host_key_fingerprint必须是合法的SHA256 SSH指纹")
 		return
 	}
 
@@ -348,7 +350,7 @@ func (a *API) runServerTest(proxyUser string) (*ServerRecord, error) {
 	var testErr error
 	if server.ConnectionType == "agent" {
 		if !server.Enabled || !a.proxy.agents.Online(server.ID) {
-			testErr = fmt.Errorf("Agent 未连接或已禁用")
+			testErr = fmt.Errorf("Agent未连接或已禁用")
 		}
 	} else {
 		testErr = TestServer(*server)
@@ -397,7 +399,7 @@ func (a *API) handleTestAllServers(w http.ResponseWriter, r *http.Request) {
 		go func(proxyUser string) {
 			defer wg.Done()
 			if _, err := a.runServerTest(proxyUser); err != nil {
-				log.Printf("测试服务器 %q 失败: %v", proxyUser, err)
+				log.Printf("测试服务器 %q失败: %v", proxyUser, err)
 			}
 		}(server.ProxyUser)
 	}
@@ -441,7 +443,7 @@ func validateServerCredentialAuth(c *ServerCredential, existing *ServerCredentia
 			c.AuthPrivateKeyPassphrase = existing.AuthPrivateKeyPassphrase
 		}
 	default:
-		return fmt.Errorf("auth_type 必须是 password 或 private_key")
+		return fmt.Errorf("auth_type必须是password或private_key")
 	}
 	return nil
 }
@@ -452,7 +454,7 @@ func (a *API) handleCreateServerCredential(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if body.Label == "" || body.TargetUser == "" {
-		writeError(w, http.StatusBadRequest, "label / target_user 不能为空")
+		writeError(w, http.StatusBadRequest, "label / target_user不能为空")
 		return
 	}
 	if err := validateServerCredentialAuth(&body, nil); err != nil {
@@ -474,7 +476,7 @@ func (a *API) handleCreateServerCredential(w http.ResponseWriter, r *http.Reques
 func (a *API) handleUpdateServerCredential(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "非法的 id")
+		writeError(w, http.StatusBadRequest, "非法的id")
 		return
 	}
 	var body ServerCredential
@@ -482,7 +484,7 @@ func (a *API) handleUpdateServerCredential(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if body.Label == "" || body.TargetUser == "" {
-		writeError(w, http.StatusBadRequest, "label / target_user 不能为空")
+		writeError(w, http.StatusBadRequest, "label / target_user不能为空")
 		return
 	}
 	existing, err := a.store.GetServerCredential(id)
@@ -508,7 +510,7 @@ func (a *API) handleUpdateServerCredential(w http.ResponseWriter, r *http.Reques
 func (a *API) handleDeleteServerCredential(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "非法的 id")
+		writeError(w, http.StatusBadRequest, "非法的id")
 		return
 	}
 	if err := a.store.DeleteServerCredential(id); err != nil {
@@ -539,7 +541,7 @@ func validateClientCredentialAuth(c *ClientCredential) error {
 	case "password":
 		// 密码留空表示编辑时不修改,Store 层会沿用旧值
 	default:
-		return fmt.Errorf("auth_type 必须是 public_key 或 password")
+		return fmt.Errorf("auth_type必须是public_key或password")
 	}
 	return nil
 }
@@ -550,7 +552,7 @@ func (a *API) handleCreateClientCredential(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if body.Label == "" {
-		writeError(w, http.StatusBadRequest, "label 不能为空")
+		writeError(w, http.StatusBadRequest, "label不能为空")
 		return
 	}
 	if err := validateClientCredentialAuth(&body); err != nil {
@@ -568,7 +570,7 @@ func (a *API) handleCreateClientCredential(w http.ResponseWriter, r *http.Reques
 func (a *API) handleUpdateClientCredential(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "非法的 id")
+		writeError(w, http.StatusBadRequest, "非法的id")
 		return
 	}
 	var body ClientCredential
@@ -576,7 +578,7 @@ func (a *API) handleUpdateClientCredential(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if body.Label == "" {
-		writeError(w, http.StatusBadRequest, "label 不能为空")
+		writeError(w, http.StatusBadRequest, "label不能为空")
 		return
 	}
 	if err := validateClientCredentialAuth(&body); err != nil {
@@ -593,7 +595,7 @@ func (a *API) handleUpdateClientCredential(w http.ResponseWriter, r *http.Reques
 func (a *API) handleDeleteClientCredential(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "非法的 id")
+		writeError(w, http.StatusBadRequest, "非法的id")
 		return
 	}
 	if err := a.store.DeleteClientCredential(id); err != nil {
@@ -617,7 +619,7 @@ func (a *API) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.ListenAddr == "" {
-		writeError(w, http.StatusBadRequest, "listen_addr 不能为空")
+		writeError(w, http.StatusBadRequest, "listen_addr不能为空")
 		return
 	}
 	oldAddr := a.proxy.ListenAddr()
@@ -660,7 +662,7 @@ func (a *API) handleListConnections(w http.ResponseWriter, r *http.Request) {
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON")
+		writeError(w, http.StatusBadRequest, "请求体不是合法JSON")
 		return false
 	}
 	return true

@@ -2,13 +2,13 @@
 
 ## 背景
 
-部分老旧交换机/网络设备的 SSH 服务只支持过时的算法(如 cipher: `aes128-cbc`、
+部分老旧交换机/网络设备的SSH服务只支持过时的算法(如cipher: `aes128-cbc`、
 `3des-cbc`;kex: `diffie-hellman-group1-sha1`、`diffie-hellman-group14-sha1`;
 host key: `ssh-rsa`、`ssh-dss`),而 `golang.org/x/crypto/ssh` 默认只启用安全算法集,
 导致握手报 `no common algorithm` 之类的错误。
 
 当前(2026-07-27)在 `proxy.go` 的 `dialUpstreamTimeout` 里做了一个**全局**兜底:
-在默认 cipher 列表后追加了 `aes128-cbc`、`3des-cbc`。这样能让老设备连上,但代价是
+在默认cipher列表后追加了 `aes128-cbc`、`3des-cbc`。这样能让老设备连上,但代价是
 *所有*目标服务器在协商时都会被动接受弱算法,削弱了对能力正常的设备的安全性。
 
 ## 更好的方案:按服务器开关
@@ -22,7 +22,7 @@ host key: `ssh-rsa`、`ssh-dss`),而 `golang.org/x/crypto/ssh` 默认只启用�
    - 加字段:`LegacyAlgorithms bool `json:"legacy_algorithms"`` (`servers` 表加一列,
      默认 0/false)
    - `UpsertServer` 等增删改查逻辑同步支持这个字段的读写
-   - 加一条数据库迁移(参考现有 migration 写法)
+   - 加一条数据库迁移(参考现有migration写法)
 
 2. **连接逻辑**(`proxy.go` 的 `dialUpstreamTimeout`)
    - 去掉现在无条件追加弱算法的写法
@@ -30,10 +30,10 @@ host key: `ssh-rsa`、`ssh-dss`),而 `golang.org/x/crypto/ssh` 默认只启用�
      - Ciphers: `aes128-cbc`、`3des-cbc`
      - KeyExchanges: `diffie-hellman-group1-sha1`、`diffie-hellman-group14-sha1`
      - HostKeyAlgorithms: `ssh-rsa`、`ssh-dss`
-   - 未勾选的服务器,`ssh.Config` 保持 x/crypto/ssh 的默认(安全)算法集
+   - 未勾选的服务器,`ssh.Config` 保持x/crypto/ssh的默认(安全)算法集
 
 3. **API**(`api.go`)
-   - 服务器的创建/更新接口(UpsertServer 相关 handler)透传 `legacy_algorithms` 字段
+   - 服务器的创建/更新接口(UpsertServer相关handler)透传 `legacy_algorithms` 字段
 
 4. **前端**(`webui/`)
    - 服务器编辑表单加一个"兼容旧设备(弱加密算法)"复选框,附带提示文案说明
@@ -42,8 +42,8 @@ host key: `ssh-rsa`、`ssh-dss`),而 `golang.org/x/crypto/ssh` 默认只启用�
 
 ### 已知限制
 
-- `golang.org/x/crypto/ssh` 没有实现单 DES(`des-cbc`)算法,这是库本身的限制,
-  不是兼容开关能解决的。如果目标设备的 SSH 服务端只会 `des-cbc`(没有 `3des-cbc`
+- `golang.org/x/crypto/ssh` 没有实现单DES(`des-cbc`)算法,这是库本身的限制,
+  不是兼容开关能解决的。如果目标设备的SSH服务端只会 `des-cbc`(没有 `3des-cbc`
   /`aes128-cbc` 可选),这条路走不通,需要在设备侧升级或开启更高算法支持。
 
 ## 现状(已实现,2026-07-27)
@@ -55,7 +55,7 @@ host key: `ssh-rsa`、`ssh-dss`),而 `golang.org/x/crypto/ssh` 默认只启用�
   同步读写这个字段
 
 **事故记录(v0.0.19)**:最初直接把这列写进 `CREATE TABLE IF NOT EXISTS`,沿用了
-本项目更早时候"不用 ALTER TABLE 兼容旧库,改表就删库重建"的约定(见 commit
+本项目更早时候"不用ALTER TABLE兼容旧库,改表就删库重建"的约定(见commit
 `d48a4b3`,当时还没有真实生产数据)。但生产库已经建过表,`CREATE TABLE IF NOT
 EXISTS` 对已存在的表不会补列,导致升级后 `SELECT ... legacy_algorithms` 报
 `no such column`,服务器列表整个查不出来,表现得像数据被删了。恢复方式是手动
@@ -64,10 +64,10 @@ EXISTS` 对已存在的表不会补列,导致升级后 `SELECT ... legacy_algori
 **以后给已有表加列必须走 `ensureColumn`,不能再假设可以直接删库重建。**
 - `proxy.go` 的 `dialUpstreamTimeout`:只有 `server.LegacyAlgorithms == true` 时才在
   `ssh.SupportedAlgorithms()` 的默认算法后面追加 `ssh.InsecureAlgorithms()` 里的
-  Ciphers、KeyExchanges、HostKeys(涵盖 CBC/3DES、老 KEX、ssh-dss 等),未勾选的
+  Ciphers、KeyExchanges、HostKeys(涵盖CBC/3DES、老KEX、ssh-dss等),未勾选的
   服务器完全不受影响
 - 前端(`webui/src/api.ts`、`ServersPage.tsx`):`ServerRecord` 加 `legacy_algorithms`
   字段,编辑服务器的弹窗里加了"兼容旧设备"复选框,并提示会降低该服务器连接的安全性
 
-`des-cbc`(单 DES)仍然无法解决——`golang.org/x/crypto/ssh` 库本身没有实现,
+`des-cbc`(单DES)仍然无法解决——`golang.org/x/crypto/ssh` 库本身没有实现,
 只能在设备侧升级。

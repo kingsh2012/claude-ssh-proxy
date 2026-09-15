@@ -53,12 +53,12 @@ func (p *Proxy) Start(addr string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.listener != nil {
-		return fmt.Errorf("SSH proxy 已经在监听 %s", p.listenAddr)
+		return fmt.Errorf("SSH proxy已经在监听 %s", p.listenAddr)
 	}
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("监听 %s 失败: %w", addr, err)
+		return fmt.Errorf("监听 %s失败: %w", addr, err)
 	}
 	p.activateListener(ln, addr)
 	return nil
@@ -74,7 +74,7 @@ func (p *Proxy) activateListener(ln net.Listener, addr string) {
 	p.listener = ln
 	p.listenAddr = addr
 
-	log.Printf("aiagent-ssh-proxy 正在监听 %s", addr)
+	log.Printf("aiagent-ssh-proxy正在监听 %s", addr)
 
 	go func() {
 		for {
@@ -83,7 +83,7 @@ func (p *Proxy) activateListener(ln net.Listener, addr string) {
 				if errors.Is(err, net.ErrClosed) {
 					return
 				}
-				log.Printf("accept 失败: %v", err)
+				log.Printf("accept失败: %v", err)
 				return
 			}
 			go p.handleConn(nc, serverCfg)
@@ -117,7 +117,7 @@ func (p *Proxy) Restart(addr string) error {
 	if p.listener == nil {
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
-			return fmt.Errorf("监听 %s 失败: %w", addr, err)
+			return fmt.Errorf("监听 %s失败: %w", addr, err)
 		}
 		p.activateListener(ln, addr)
 		return nil
@@ -138,7 +138,7 @@ func (p *Proxy) Restart(addr string) error {
 	// 只有新旧地址使用同一个 TCP 端口且失败原因是地址占用时,失败才可能是旧
 	// listener 自身造成的。其他错误直接返回,保持旧监听不动。
 	if !errors.Is(err, syscall.EADDRINUSE) || !sameTCPPort(oldListener.Addr(), addr) {
-		return fmt.Errorf("监听 %s 失败: %w", addr, err)
+		return fmt.Errorf("监听 %s失败: %w", addr, err)
 	}
 
 	_ = oldListener.Close()
@@ -151,12 +151,12 @@ func (p *Proxy) Restart(addr string) error {
 	restored, restoreErr := net.Listen("tcp", oldAddr)
 	if restoreErr == nil {
 		p.activateListener(restored, oldAddr)
-		return fmt.Errorf("监听 %s 失败,已恢复旧监听 %s: %w", addr, oldAddr, retryErr)
+		return fmt.Errorf("监听 %s失败,已恢复旧监听 %s: %w", addr, oldAddr, retryErr)
 	}
 
 	p.listener = nil
 	p.listenAddr = ""
-	return fmt.Errorf("监听 %s 失败且无法恢复旧监听 %s: %v (恢复失败: %v)", addr, oldAddr, retryErr, restoreErr)
+	return fmt.Errorf("监听 %s失败且无法恢复旧监听 %s: %v (恢复失败: %v)", addr, oldAddr, retryErr, restoreErr)
 }
 
 func sameTCPPort(current net.Addr, requested string) bool {
@@ -221,11 +221,11 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 	clientCredentialLabel := sconn.Permissions.Extensions["client-credential-label"]
 	server, err := p.store.ResolveServer(proxyUser)
 	if err != nil || !server.Enabled {
-		log.Printf("[%s] 服务器 %q 不存在", remoteAddr, proxyUser)
+		log.Printf("[%s] 服务器 %q不存在", remoteAddr, proxyUser)
 		return
 	}
 
-	log.Printf("[%s] 用户 %q 认证通过,路由到 %s@%s:%d",
+	log.Printf("[%s] 用户 %q认证通过,路由到 %s@%s:%d",
 		remoteAddr, proxyUser, server.TargetUser, server.TargetHost, server.TargetPort)
 
 	if server.ConnectionType == "agent" {
@@ -235,14 +235,14 @@ func (p *Proxy) handleConn(nc net.Conn, serverCfg *ssh.ServerConfig) {
 
 	client, err := dialUpstream(*server)
 	if err != nil {
-		log.Printf("[%s] 连接后端 %s:%d 失败: %v", remoteAddr, server.TargetHost, server.TargetPort, err)
+		log.Printf("[%s] 连接后端 %s:%d失败: %v", remoteAddr, server.TargetHost, server.TargetPort, err)
 		return
 	}
 	defer client.Close()
 	connectionID := p.addConnection(*server, remoteAddr, clientCredentialLabel)
 	defer p.removeConnection(connectionID)
 
-	go ssh.DiscardRequests(reqs) // 全局请求(如 keepalive)直接丢弃,不影响会话代理
+	go ssh.DiscardRequests(reqs) // 全局请求(如keepalive)直接丢弃,不影响会话代理
 
 	var wg sync.WaitGroup
 	for newChan := range chans {
@@ -321,7 +321,7 @@ func verifyHostKeyFingerprint(expected string) ssh.HostKeyCallback {
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		actual := ssh.FingerprintSHA256(key)
 		if actual != expected {
-			return fmt.Errorf("目标机器 host key 指纹不匹配:期望 %s,实际 %s", expected, actual)
+			return fmt.Errorf("目标机器host key指纹不匹配:期望 %s,实际 %s", expected, actual)
 		}
 		return nil
 	}
@@ -383,7 +383,7 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxy
 		defer wg.Done()
 		var reader io.Reader = downChan
 		if audit != nil {
-			reader = io.TeeReader(downChan, audit) // 捕获 client->server 方向的数据(shell 里敲的命令)
+			reader = io.TeeReader(downChan, audit) // 捕获client->server方向的数据(shell里敲的命令)
 		}
 		io.Copy(upChan, reader)
 		upChan.CloseWrite()
@@ -392,7 +392,7 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxy
 		defer wg.Done()
 		var reader io.Reader = upChan
 		if audit != nil {
-			reader = io.TeeReader(upChan, outputWriter{audit}) // 捕获 server->client 方向的数据(exec 命令的输出)
+			reader = io.TeeReader(upChan, outputWriter{audit}) // 捕获server->client方向的数据(exec命令的输出)
 		}
 		io.Copy(downChan, reader)
 		downChan.CloseWrite()

@@ -5,6 +5,7 @@ import {
   ReloadOutlined as RefreshIcon,
   DownOutlined,
   ClearOutlined,
+  MoreOutlined,
 } from "@ant-design/icons";
 import { ToolbarIconAction, ListToolbarSearch } from "./ListControls";
 import { useListView } from "./useListView";
@@ -295,15 +296,15 @@ export function ServersPage() {
         <Tooltip
           text={
             s.connection_type === "agent"
-              ? "Agent 主动连接 · Token 认证"
-              : `${s.legacy_algorithms ? "兼容旧设备" : "现代算法"} · ${s.host_key_fingerprint ? "Host Key 已校验" : "Host Key 未校验"}${s.route_mode === "dynamic_port" ? ` · 端口 ${s.port_min}–${s.port_max}` : ""}`
+              ? "Agent主动连接 · Token认证"
+              : `${s.legacy_algorithms ? "兼容旧设备" : "现代算法"} · ${s.host_key_fingerprint ? "Host Key已校验" : "Host Key未校验"}${s.route_mode === "dynamic_port" ? ` · 端口 ${s.port_min}–${s.port_max}` : ""}`
           }
         >
           <Tag className="connection-tag">
             {s.connection_type === "agent"
               ? "Agent"
               : s.route_mode === "dynamic_port"
-                ? "SSH 动态端口"
+                ? "SSH动态端口"
                 : "SSH"}
           </Tag>
         </Tooltip>
@@ -395,9 +396,26 @@ export function ServersPage() {
           {s.connection_type !== "agent" && (
             <Button type="link" size="small" disabled={bulkBusy} onClick={() => duplicate(s)}>复制</Button>
           )}
-          <Button type="link" size="small" danger disabled={bulkBusy} onClick={() => void remove(s.proxy_user).catch(() => alert("删除失败"))}>
-            删除
-          </Button>
+          <Dropdown
+            disabled={bulkBusy}
+            menu={{
+              items: [{
+                key: "delete",
+                label: "删除",
+                danger: true,
+                disabled: bulkBusy,
+                onClick: () => void remove(s.proxy_user).catch(() => alert("删除失败")),
+              }],
+            }}
+          >
+            <Button
+              type="text"
+              size="small"
+              disabled={bulkBusy}
+              aria-label="更多操作"
+              icon={<MoreOutlined />}
+            />
+          </Dropdown>
         </div>
       ),
     },
@@ -621,10 +639,10 @@ function parseImportCSV(
     ] = cols.map((c) => c.trim());
 
     if (!proxyUserRaw) {
-      errors.push(`第 ${lineNo} 行:proxy_user 不能为空`);
+      errors.push(`第 ${lineNo} 行:proxy_user不能为空`);
     }
     if (!targetHostRaw) {
-      errors.push(`第 ${lineNo} 行:target_host 不能为空`);
+      errors.push(`第 ${lineNo} 行:target_host不能为空`);
     }
 
     let targetPort = 22;
@@ -778,7 +796,7 @@ function ImportModal({
         <code className="rounded bg-slate-100 px-1 ">
           client_credential_id
         </code>{" "}
-        一个格子里可以用分号分隔多个 id。
+        一个格子里可以用分号分隔多个id。
       </p>
       <pre className="mb-3 table-scroll overflow-x-auto rounded bg-slate-50 p-2 text-xs text-slate-600  ">
         {`${IMPORT_HEADER}

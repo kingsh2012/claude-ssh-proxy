@@ -1,3 +1,11 @@
+export interface ListenerSettings {
+  web_listen_addr: string;
+  agent_listen_addr: string;
+  agent_tls_enabled: boolean;
+  agent_tls_cert_file: string;
+  agent_tls_key_file: string;
+}
+
 export type AuthType = "password" | "private_key";
 export type ClientAuthType = "public_key" | "password";
 
@@ -243,6 +251,12 @@ export const api = {
       method: "DELETE",
     }),
 
+  getListeners: () => request<ListenerSettings>("/api/settings/listeners"),
+  updateListeners: (settings: ListenerSettings) =>
+    request<{ ok: boolean; restart_required: boolean }>("/api/settings/listeners", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
   getSettings: () => request<{ listen_addr: string }>("/api/settings"),
   updateSettings: (listenAddr: string) =>
     request<{ ok: boolean }>("/api/settings", {

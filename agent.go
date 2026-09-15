@@ -143,7 +143,7 @@ func (h *AgentHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleRotateAgentToken(w http.ResponseWriter, r *http.Request) {
 	s, err := a.store.GetServer(r.PathValue("user"))
 	if err != nil || s.ConnectionType != "agent" {
-		writeError(w, 400, "请选择 Agent 服务器")
+		writeError(w, 400, "请选择Agent服务器")
 		return
 	}
 	b := make([]byte, 32)

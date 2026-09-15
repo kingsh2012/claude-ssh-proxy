@@ -804,6 +804,151 @@ func (s *Store) SetServerEnabled(proxyUser string, enabled bool) error {
 	return nil
 }
 
+const (
+	bulkCredentialReplace = "replace"
+	bulkCredentialAdd     = "add"
+	bulkCredentialRemove  = "remove"
+)
+
+func validateBulkCredentialOperation(operation string) error {
+	switch operation {
+	case bulkCredentialReplace, bulkCredentialAdd, bulkCredentialRemove:
+		return nil
+	default:
+		return fmt.Errorf("操作方式必须是replace、add或remove")
+	}
+}
+
+func uniquePositiveIDs(ids []int64, field string) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%s不能为空", field)
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	unique := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, fmt.Errorf("%s包含非法ID", field)
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique, nil
+}
+
+// BulkUpdateServerCredential批量覆盖或删除SSH服务器的一对一服务器凭证关联。
+func (s *Store) BulkUpdateServerCredential(serverIDs []int64, credentialID int64, operation string) error {
+	ids, err := uniquePositiveIDs(serverIDs, "服务器ID")
+	if err != nil {
+		return err
+	}
+	if operation != bulkCredentialReplace && operation != bulkCredentialRemove {
+		return fmt.Errorf("服务器凭证操作方式必须是replace或remove")
+	}
+	if operation == bulkCredentialReplace && credentialID <= 0 {
+		return fmt.Errorf("服务器凭证ID不合法")
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if operation == bulkCredentialReplace {
+		var exists int
+		if err := tx.QueryRow(`SELECT 1 FROM server_credentials WHERE id = ?`, credentialID).Scan(&exists); err == sql.ErrNoRows {
+			return fmt.Errorf("服务器凭证%d不存在", credentialID)
+		} else if err != nil {
+			return err
+		}
+	}
+	for _, serverID := range ids {
+		var connectionType string
+		if err := tx.QueryRow(`SELECT connection_type FROM servers WHERE id = ?`, serverID).Scan(&connectionType); err == sql.ErrNoRows {
+			return fmt.Errorf("服务器%d不存在", serverID)
+		} else if err != nil {
+			return err
+		}
+		if connectionType != "ssh" {
+			return fmt.Errorf("服务器%d不是SSH服务器", serverID)
+		}
+	}
+
+	for _, serverID := range ids {
+		switch operation {
+		case bulkCredentialReplace:
+			_, err = tx.Exec(`UPDATE servers SET server_credential_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, credentialID, serverID)
+		case bulkCredentialRemove:
+			_, err = tx.Exec(`UPDATE servers SET server_credential_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, serverID)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// BulkUpdateClientCredentials批量修改服务器与客户端凭证的多对多关联。
+func (s *Store) BulkUpdateClientCredentials(serverIDs, credentialIDs []int64, operation string) error {
+	servers, err := uniquePositiveIDs(serverIDs, "服务器ID")
+	if err != nil {
+		return err
+	}
+	credentials, err := uniquePositiveIDs(credentialIDs, "客户端凭证ID")
+	if err != nil {
+		return err
+	}
+	if err := validateBulkCredentialOperation(operation); err != nil {
+		return err
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, serverID := range servers {
+		var exists int
+		if err := tx.QueryRow(`SELECT 1 FROM servers WHERE id = ?`, serverID).Scan(&exists); err == sql.ErrNoRows {
+			return fmt.Errorf("服务器%d不存在", serverID)
+		} else if err != nil {
+			return err
+		}
+	}
+	for _, credentialID := range credentials {
+		var exists int
+		if err := tx.QueryRow(`SELECT 1 FROM client_credentials WHERE id = ?`, credentialID).Scan(&exists); err == sql.ErrNoRows {
+			return fmt.Errorf("客户端凭证%d不存在", credentialID)
+		} else if err != nil {
+			return err
+		}
+	}
+
+	for _, serverID := range servers {
+		if operation == bulkCredentialReplace {
+			if _, err := tx.Exec(`DELETE FROM server_client_credentials WHERE server_id = ?`, serverID); err != nil {
+				return err
+			}
+		}
+		for _, credentialID := range credentials {
+			switch operation {
+			case bulkCredentialReplace, bulkCredentialAdd:
+				_, err = tx.Exec(`INSERT OR IGNORE INTO server_client_credentials(server_id, client_credential_id) VALUES(?, ?)`, serverID, credentialID)
+			case bulkCredentialRemove:
+				_, err = tx.Exec(`DELETE FROM server_client_credentials WHERE server_id = ? AND client_credential_id = ?`, serverID, credentialID)
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) DeleteServer(proxyUser string) error {
 	_, err := s.db.Exec(`DELETE FROM servers WHERE proxy_user = ?`, proxyUser)
 	return err

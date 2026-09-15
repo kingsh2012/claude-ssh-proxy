@@ -105,6 +105,128 @@ func TestForeignKeysCascadeServerRelations(t *testing.T) {
 	}
 }
 
+func TestBulkUpdateServerCredentialOperations(t *testing.T) {
+	store := openTestStore(t)
+	credentialA, err := store.CreateServerCredential(ServerCredential{
+		Label: "credential-a", TargetUser: "root", AuthType: "password", AuthPassword: "password-a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialB, err := store.CreateServerCredential(ServerCredential{
+		Label: "credential-b", TargetUser: "root", AuthType: "password", AuthPassword: "password-b",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, server := range []ServerRecord{
+		{ProxyUser: "server-a", TargetHost: "10.0.0.1", TargetPort: 22},
+		{ProxyUser: "server-b", TargetHost: "10.0.0.2", TargetPort: 22, ServerCredentialID: &credentialA},
+		{ProxyUser: "windows-a", TargetHost: "Windows Agent", ConnectionType: "agent"},
+	} {
+		if err := store.UpsertServer(server); err != nil {
+			t.Fatal(err)
+		}
+	}
+	serverA, _ := store.GetServer("server-a")
+	serverB, _ := store.GetServer("server-b")
+	windows, _ := store.GetServer("windows-a")
+
+	if err := store.BulkUpdateServerCredential([]int64{serverA.ID, serverB.ID}, credentialB, bulkCredentialReplace); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BulkUpdateServerCredential([]int64{serverA.ID, serverB.ID}, 0, bulkCredentialRemove); err != nil {
+		t.Fatal(err)
+	}
+	serverA, _ = store.GetServer("server-a")
+	serverB, _ = store.GetServer("server-b")
+	if serverA.ServerCredentialID != nil || serverB.ServerCredentialID != nil {
+		t.Fatalf("remove did not clear matching credentials: server-a=%v server-b=%v", serverA.ServerCredentialID, serverB.ServerCredentialID)
+	}
+	if err := store.BulkUpdateServerCredential([]int64{serverA.ID}, credentialA, bulkCredentialAdd); err == nil {
+		t.Fatal("expected add operation to be rejected for single-value server credentials")
+	}
+
+	if err := store.BulkUpdateServerCredential([]int64{serverA.ID, windows.ID}, credentialA, bulkCredentialReplace); err == nil {
+		t.Fatal("expected Agent server validation to fail")
+	}
+	serverA, _ = store.GetServer("server-a")
+	if serverA.ServerCredentialID != nil {
+		t.Fatalf("failed bulk operation was not rolled back: %v", serverA.ServerCredentialID)
+	}
+}
+
+func TestBulkUpdateClientCredentialOperationsAndRollback(t *testing.T) {
+	store := openTestStore(t)
+	for _, server := range []ServerRecord{
+		{ProxyUser: "server-a", TargetHost: "10.0.0.1", TargetPort: 22},
+		{ProxyUser: "server-b", TargetHost: "10.0.0.2", TargetPort: 22},
+	} {
+		if err := store.UpsertServer(server); err != nil {
+			t.Fatal(err)
+		}
+	}
+	serverA, _ := store.GetServer("server-a")
+	serverB, _ := store.GetServer("server-b")
+	credentialA, err := store.CreateClientCredential(ClientCredential{
+		Label: "client-a", AuthType: "password", Password: "password-a",
+	}, []string{"server-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialB, err := store.CreateClientCredential(ClientCredential{
+		Label: "client-b", AuthType: "password", Password: "password-b",
+	}, []string{"server-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serverIDs := []int64{serverA.ID, serverB.ID}
+	if err := store.BulkUpdateClientCredentials(serverIDs, []int64{credentialA}, bulkCredentialAdd); err != nil {
+		t.Fatal(err)
+	}
+	assertClientCredentialIDs(t, store, "server-a", credentialA)
+	assertClientCredentialIDs(t, store, "server-b", credentialA, credentialB)
+
+	if err := store.BulkUpdateClientCredentials(serverIDs, []int64{credentialA}, bulkCredentialRemove); err != nil {
+		t.Fatal(err)
+	}
+	assertClientCredentialIDs(t, store, "server-a")
+	assertClientCredentialIDs(t, store, "server-b", credentialB)
+
+	if err := store.BulkUpdateClientCredentials(serverIDs, []int64{credentialA}, bulkCredentialReplace); err != nil {
+		t.Fatal(err)
+	}
+	assertClientCredentialIDs(t, store, "server-a", credentialA)
+	assertClientCredentialIDs(t, store, "server-b", credentialA)
+
+	if err := store.BulkUpdateClientCredentials(serverIDs, []int64{credentialB, 99999}, bulkCredentialAdd); err == nil {
+		t.Fatal("expected invalid credential validation to fail")
+	}
+	assertClientCredentialIDs(t, store, "server-a", credentialA)
+	assertClientCredentialIDs(t, store, "server-b", credentialA)
+}
+
+func assertClientCredentialIDs(t *testing.T, store *Store, proxyUser string, expected ...int64) {
+	t.Helper()
+	credentials, err := store.ListClientCredentialsForServer(proxyUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(credentials) != len(expected) {
+		t.Fatalf("%s credentials=%v, expected IDs=%v", proxyUser, credentials, expected)
+	}
+	actual := make(map[int64]bool, len(credentials))
+	for _, credential := range credentials {
+		actual[credential.ID] = true
+	}
+	for _, id := range expected {
+		if !actual[id] {
+			t.Fatalf("%s credentials=%v, expected ID=%d", proxyUser, credentials, id)
+		}
+	}
+}
+
 func TestAuditFiltersCanBeCombined(t *testing.T) {
 	store := openTestStore(t)
 	logs := []AuditLog{

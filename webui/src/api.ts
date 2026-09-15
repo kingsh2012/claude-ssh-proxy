@@ -211,6 +211,24 @@ export const api = {
         body: JSON.stringify({ enabled }),
       },
     ),
+  bulkUpdateServerCredential: (body: {
+    server_ids: number[];
+    server_credential_id?: number;
+    operation: "replace" | "remove";
+  }) =>
+    request<{ ok: boolean }>("/api/servers/bulk/server-credential", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  bulkUpdateClientCredentials: (body: {
+    server_ids: number[];
+    client_credential_ids: number[];
+    operation: "replace" | "add" | "remove";
+  }) =>
+    request<{ ok: boolean }>("/api/servers/bulk/client-credentials", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 
   listServerCredentials: () =>
     request<ServerCredential[]>("/api/server-credentials"),

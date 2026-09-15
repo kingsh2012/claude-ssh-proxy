@@ -45,6 +45,8 @@ func (a *API) Router() http.Handler {
 	mux.HandleFunc("POST /api/agent-enrollments/{id}/revoke", a.auth(a.handleRevokeEnrollment))
 	mux.HandleFunc("GET /api/servers", a.auth(a.handleListServers))
 	mux.HandleFunc("POST /api/servers", a.auth(a.handleUpsertServer))
+	mux.HandleFunc("PUT /api/servers/bulk/server-credential", a.auth(a.handleBulkServerCredential))
+	mux.HandleFunc("PUT /api/servers/bulk/client-credentials", a.auth(a.handleBulkClientCredentials))
 	mux.HandleFunc("DELETE /api/servers/{user}", a.auth(a.handleDeleteServer))
 	mux.HandleFunc("POST /api/servers/test-all", a.auth(a.handleTestAllServers))
 	mux.HandleFunc("POST /api/servers/{user}/agent-token", a.auth(a.handleRotateAgentToken))
@@ -309,6 +311,38 @@ func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	}
 	if previous != nil {
 		a.proxy.agents.Disconnect(previous.ID)
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (a *API) handleBulkServerCredential(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ServerIDs    []int64 `json:"server_ids"`
+		CredentialID int64   `json:"server_credential_id"`
+		Operation    string  `json:"operation"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if err := a.store.BulkUpdateServerCredential(body.ServerIDs, body.CredentialID, body.Operation); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (a *API) handleBulkClientCredentials(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ServerIDs     []int64 `json:"server_ids"`
+		CredentialIDs []int64 `json:"client_credential_ids"`
+		Operation     string  `json:"operation"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if err := a.store.BulkUpdateClientCredentials(body.ServerIDs, body.CredentialIDs, body.Operation); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }

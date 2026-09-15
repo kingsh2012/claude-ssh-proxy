@@ -18,6 +18,9 @@ import {
   Dropdown,
   Input,
   Modal,
+  Radio,
+  Select,
+  Space,
   Tag,
   Typography,
 } from "antd";
@@ -51,6 +54,9 @@ const emptyServer: ServerRecord = {
   last_test_ok: null,
   server_credential_id: null,
 };
+
+type BulkCredentialKind = "server" | "client";
+type BulkCredentialOperation = "replace" | "add" | "remove";
 
 // reconcileClientCredentials 把"这个代理登录名应该关联哪些客户端凭证"落地成实际的 API 调用:
 // 对比每份客户端凭证当前的 proxy_users 和期望的勾选结果,只在有变化的凭证上调用更新接口。
@@ -103,6 +109,16 @@ export function ServersPage() {
   const [importing, setImporting] = useState(false);
   const [selectedServerIds, setSelectedServerIds] = useState<number[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkCredentialKind, setBulkCredentialKind] =
+    useState<BulkCredentialKind | null>(null);
+  const [bulkCredentialOperation, setBulkCredentialOperation] =
+    useState<BulkCredentialOperation>("replace");
+  const [bulkServerCredentialID, setBulkServerCredentialID] = useState<
+    number | undefined
+  >();
+  const [bulkClientCredentialIDs, setBulkClientCredentialIDs] = useState<
+    number[]
+  >([]);
 
   async function bulkAction(action: "disable" | "enable" | "delete") {
     if (bulkBusy) return;
@@ -135,6 +151,82 @@ export function ServersPage() {
       const completed = targets.length - failed.length;
       if (completed) success(`${completed} 台服务器已${label}`);
       setError(failures.length ? `${failed.length} 台${label}失败：${failures.join("；")}` : "");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  function openBulkCredential(kind: BulkCredentialKind) {
+    if (kind === "server") {
+      const sshCount = servers.filter(
+        (server) =>
+          selectedServerIds.includes(server.id) &&
+          server.connection_type !== "agent",
+      ).length;
+      if (!sshCount) {
+        alert("所选服务器中没有SSH服务器");
+        return;
+      }
+    }
+    setBulkCredentialOperation("replace");
+    setBulkServerCredentialID(undefined);
+    setBulkClientCredentialIDs([]);
+    setBulkCredentialKind(kind);
+  }
+
+  async function submitBulkCredential() {
+    if (!bulkCredentialKind || bulkBusy) return;
+    const serverIDs = selectedServerIds.filter((id) =>
+      bulkCredentialKind === "client"
+        ? true
+        : servers.some(
+            (server) =>
+              server.id === id && server.connection_type !== "agent",
+          ),
+    );
+    if (!serverIDs.length) return;
+    if (
+      bulkCredentialKind === "server" &&
+      bulkCredentialOperation === "replace" &&
+      bulkServerCredentialID == null
+    ) {
+      alert("请选择服务器凭证");
+      return;
+    }
+    if (
+      bulkCredentialKind === "client" &&
+      bulkClientCredentialIDs.length === 0
+    ) {
+      alert("请选择客户端凭证");
+      return;
+    }
+
+    setBulkBusy(true);
+    try {
+      if (bulkCredentialKind === "server") {
+        await api.bulkUpdateServerCredential({
+          server_ids: serverIDs,
+          server_credential_id: bulkServerCredentialID,
+          operation:
+            bulkCredentialOperation === "remove" ? "remove" : "replace",
+        });
+      } else {
+        await api.bulkUpdateClientCredentials({
+          server_ids: serverIDs,
+          client_credential_ids: bulkClientCredentialIDs,
+          operation: bulkCredentialOperation,
+        });
+      }
+      success(
+        bulkCredentialKind === "server"
+          ? `${serverIDs.length}台SSH服务器的服务器凭证已批量修改`
+          : `${serverIDs.length}台服务器的客户端凭证已批量修改`,
+      );
+      setBulkCredentialKind(null);
+      setSelectedServerIds([]);
+      await load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "批量修改失败");
     } finally {
       setBulkBusy(false);
     }
@@ -474,11 +566,22 @@ export function ServersPage() {
             disabled={bulkBusy || selectedServerIds.length === 0}
             menu={{
               items: [
+                { key: "serverCredential", label: "批量修改服务器凭证" },
+                { key: "clientCredentials", label: "批量修改客户端凭证" },
+                { type: "divider" },
                 { key: "disable", label: "批量禁用" },
                 { key: "enable", label: "批量启用" },
                 { key: "delete", label: "批量删除", danger: true },
               ],
-              onClick: ({ key }) => void bulkAction(key as "disable" | "enable" | "delete"),
+              onClick: ({ key }) => {
+                if (key === "serverCredential") {
+                  openBulkCredential("server");
+                } else if (key === "clientCredentials") {
+                  openBulkCredential("client");
+                } else {
+                  void bulkAction(key as "disable" | "enable" | "delete");
+                }
+              },
             }}
           >
             <Button disabled={bulkBusy || selectedServerIds.length === 0}>
@@ -553,6 +656,83 @@ export function ServersPage() {
           onDone={load}
         />
       )}
+
+      <Modal
+        title={
+          bulkCredentialKind === "server"
+            ? "批量修改服务器凭证"
+            : "批量修改客户端凭证"
+        }
+        open={bulkCredentialKind !== null}
+        okText="确定"
+        cancelText="取消"
+        confirmLoading={bulkBusy}
+        onOk={() => void submitBulkCredential()}
+        onCancel={() => !bulkBusy && setBulkCredentialKind(null)}
+      >
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Typography.Text type="secondary">
+            已选择{selectedServerIds.length}台服务器
+            {bulkCredentialKind === "server" &&
+              servers.some(
+                (server) =>
+                  selectedServerIds.includes(server.id) &&
+                  server.connection_type === "agent",
+              ) && "，其中Agent服务器将跳过"}
+          </Typography.Text>
+          <Radio.Group
+            value={bulkCredentialOperation}
+            onChange={(event) =>
+              setBulkCredentialOperation(event.target.value)
+            }
+          >
+            <Space direction="vertical">
+              <Radio value="replace">覆盖</Radio>
+              {bulkCredentialKind === "client" && (
+                <Radio value="add">新增</Radio>
+              )}
+              <Radio value="remove">删除</Radio>
+            </Space>
+          </Radio.Group>
+          {bulkCredentialKind === "server" ? (
+            bulkCredentialOperation !== "remove" ? (
+              <Select
+                value={bulkServerCredentialID}
+                onChange={setBulkServerCredentialID}
+                placeholder="请选择服务器凭证"
+                style={{ width: "100%" }}
+                options={serverCredentials.map((credential) => ({
+                  value: credential.id,
+                  label: `${credential.label}（${credential.target_user}）`,
+                }))}
+              />
+            ) : null
+          ) : (
+            <Select
+              mode="multiple"
+              value={bulkClientCredentialIDs}
+              onChange={setBulkClientCredentialIDs}
+              placeholder="请选择客户端凭证"
+              style={{ width: "100%" }}
+              options={clientCredentials.map((credential) => ({
+                value: credential.id,
+                label: credential.label,
+              }))}
+            />
+          )}
+          <Typography.Text type="secondary">
+            {bulkCredentialOperation === "replace"
+              ? bulkCredentialKind === "server"
+                ? "使用所选凭证替换全部目标SSH服务器的现有凭证。"
+                : "使用所选凭证替换全部目标服务器的现有客户端凭证。"
+              : bulkCredentialOperation === "add"
+                ? "保留现有客户端凭证，并新增所选凭证。"
+                : bulkCredentialKind === "server"
+                  ? "清空全部目标SSH服务器当前关联的服务器凭证。"
+                  : "保留其他客户端凭证，仅删除所选凭证。"}
+          </Typography.Text>
+        </Space>
+      </Modal>
     </PageContainer>
   );
 }

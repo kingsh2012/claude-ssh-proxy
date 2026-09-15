@@ -157,3 +157,66 @@ func TestDynamicPortServerValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestBulkCredentialAPIs(t *testing.T) {
+	store := openTestStore(t)
+	if err := store.CreateAdminUser("admin", "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAdminPassword("admin", "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertServer(ServerRecord{ProxyUser: "server-a", TargetHost: "10.0.0.1", TargetPort: 22}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServer("server-a")
+	serverCredentialID, err := store.CreateServerCredential(ServerCredential{
+		Label: "server-credential", TargetUser: "root", AuthType: "password", AuthPassword: "password",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCredentialID, err := store.CreateClientCredential(ClientCredential{
+		Label: "client-credential", AuthType: "password", Password: "password",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	api := NewAPI(store, &Proxy{store: store, connections: make(map[uint64]*ActiveConnection)})
+	token, err := api.issueToken("admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := func(path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+		api.Router().ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	serverBody, _ := json.Marshal(map[string]any{
+		"server_ids": []int64{server.ID}, "server_credential_id": serverCredentialID, "operation": bulkCredentialReplace,
+	})
+	if recorder := put("/api/servers/bulk/server-credential", string(serverBody)); recorder.Code != http.StatusOK {
+		t.Fatalf("bulk server credential API failed: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	clientBody, _ := json.Marshal(map[string]any{
+		"server_ids": []int64{server.ID}, "client_credential_ids": []int64{clientCredentialID}, "operation": bulkCredentialAdd,
+	})
+	if recorder := put("/api/servers/bulk/client-credentials", string(clientBody)); recorder.Code != http.StatusOK {
+		t.Fatalf("bulk client credential API failed: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	updated, err := store.GetServer("server-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ServerCredentialID == nil || *updated.ServerCredentialID != serverCredentialID {
+		t.Fatalf("server credential was not updated: %#v", updated)
+	}
+	assertClientCredentialIDs(t, store, "server-a", clientCredentialID)
+}

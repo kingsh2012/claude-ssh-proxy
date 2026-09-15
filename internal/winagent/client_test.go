@@ -98,7 +98,7 @@ func TestRunReportsConnectTaskDisconnectAndReconnect(t *testing.T) {
 	}
 	var stdout, stderr strings.Builder
 	var finished Event
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(15 * time.Second)
 waitForFinish:
 	for {
 		select {

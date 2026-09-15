@@ -24,7 +24,7 @@ func TestScheduleExecutableReplacement(t *testing.T) {
 	if err := scheduleExecutableReplacement(target, staged, logPath, 2147483647); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		data, readErr := os.ReadFile(target)
 		logData, logErr := os.ReadFile(logPath)

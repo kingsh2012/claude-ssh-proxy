@@ -100,20 +100,20 @@ location / {
 1. 打开后台 **服务设置 → 服务器自注册**。
 2. 在公网连接地址输入框填写Windows可访问、证书可信的WSS地址，例如`wss://proxy.example.com/agent`，或HTTPS主域名`https://proxy.example.com`，点击 **保存地址**。
 3. 点击只读输入框旁的 **随机生成密钥**，再点击 **保存**。生成只产生草稿，保存成功后生效；点击输入框全选，复制完整Token给Agent使用。多台Windows共用此密钥。
-4. Token在服务设置中可再次查看和复制；完整Token加密保存在数据库中，认证使用SHA-256 摘要。数据库必须连同 `.db.key` 一起备份。
+4. Token在服务设置中可再次查看和复制；完整Token加密保存在数据库中，认证使用SHA-256摘要。数据库必须连同`.db.key`一起备份。
 
 仅传 `-token` 即可连接，因为Token包含服务器地址和随机密钥。后台HTTP地址不等于Agent接入地址，需要先启用Agent内置TLS或配置TLS反向代理。修改地址并保存后，Token中的地址同步更新，随机密钥不变；后续启动Agent使用更新后的完整Token。域名不写死在exe中。Agent的 `-server https://proxy.example.com` 及HTTPS地址Token自动转换为 `wss://proxy.example.com/agent`；旧WSS地址和Token继续可用。后台生成的Token保留WSS格式，兼容旧Agent。页面显示服务端保存的WSS地址，不再强制转换成HTTPS主域名。已有主机访问权限不会被覆盖。
 
 ## 4. 在Windows启动
 
 ```powershell
-.\aiagent-ssh-client.exe -token '服务设置中的自注册Token'
+.\aiagent-ssh-client.exe -token '服务设置中的服务器自注册Token'
 ```
 
 可用 `-hostname` 直接指定代理登录名：
 
 ```powershell
-.\aiagent-ssh-client.exe -token '服务设置中的自注册Token' -hostname 'es-windows-01'
+.\aiagent-ssh-client.exe -token '服务设置中的服务器自注册Token' -hostname 'es-windows-01'
 ```
 
 - 不传 `-hostname` 时使用Windows主机名。名称支持字母、数字、点、短横线和下划线，以字母或数字开头，最长 253 字符。
@@ -122,10 +122,21 @@ location / {
 - 禁用主机会阻止连接。删除主机后保留名称占用记录，Agent不会因自动重连恢复被删除的主机；重新接入使用新的 `-hostname`。
 - **保存新密钥** 后才会断开使用旧密钥的Agent，旧Token无法注册或重连；仅点击随机生成不会影响当前密钥。轮换后用新Token和原名称启动，继续使用原主机记录与访问权限。
 - 新主机注册不绑定任何客户端凭证，也不继承历史默认授权。管理员在服务器列表中编辑主机、关联客户端凭证后，才允许SSH代理访问；重连不会清除已有的手动授权。
-- 前台运行，关闭终端或按Ctrl+C停止；断线每 5 秒重连，不重放命令。
+- 前台运行，关闭终端或按Ctrl+C停止；断线每5秒重连，不重放命令。客户端输出首次连接成功、连接失败或断开、重连成功、收到的完整命令、PowerShell标准输出与标准错误、任务取消、退出码与耗时，以及Ctrl+C关闭过程。客户端不主动输出Token；命令或结果中的敏感内容会显示在客户端窗口中，使用时注意终端记录和截屏范围。
 - Token不应写入聊天、工单或Git；命令参数可能保留在终端历史与本机进程参数中。
 
 需要覆盖连接地址时可增加 `-server 'wss://proxy.example.com/agent'`。已有旧版独立Token和TOML配置仍可使用；`-config` 与 `-token`、`-server` 不能混用，`-hostname` 可覆盖TOML中的 `hostname`。网页已移除手动创建Agent、生成TOML配置及逐台申请Token的入口。
+
+查看版本或升级客户端：
+
+```powershell
+.\aiagent-ssh-client.exe -version
+.\aiagent-ssh-client.exe -upgrade
+```
+
+升级命令不需要Token。它从GitHub最新Release下载固定的Windows客户端包和`.sha256`文件，核对通过后暂存新程序。当前客户端退出后，隐藏的Windows PowerShell进程替换原`.exe`，结果写入同目录的`aiagent-ssh-client-upgrade.log`。升级过程中不自动启动Agent，完成后仍使用原接入命令启动。
+
+专用客户端第一次升级时，会把内置CA公钥证书保存为同目录的`aiagent-ssh-client-ca.crt`。后续通用客户端从此文件继续加载生产CA，因此升级不会丢失当前WSS证书信任。该文件不包含CA私钥或注册Token，不要随意修改；升级需要当前目录写权限和访问GitHub的出站网络。发布包缺少SHA-256校验文件、下载内容不一致或无法保留CA时，升级会停止且不替换当前程序。
 
 ## 5. LLM调用与文件读取
 

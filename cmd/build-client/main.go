@@ -8,12 +8,14 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
 func main() {
 	ca := flag.String("ca", "", "要嵌入客户端的CA公钥证书PEM路径，不接受私钥")
 	out := flag.String("out", "dist/aiagent-ssh-client.exe", "Windows amd64客户端输出路径")
+	version := flag.String("version", "dev", "写入客户端的版本号")
 	flag.Parse()
 	if *ca == "" {
 		log.Fatal("必须指定-ca公钥证书路径")
@@ -41,7 +43,10 @@ func main() {
 	if count == 0 {
 		log.Fatal("CA证书为空")
 	}
-	flags := "-s -w -X github.com/kingsh2012/aiagent-ssh-proxy/internal/winagent.embeddedCABase64=" + base64.StdEncoding.EncodeToString(data)
+	if !regexp.MustCompile(`^(dev|v[0-9]+\.[0-9]+\.[0-9]+)$`).MatchString(*version) {
+		log.Fatal("版本号必须是dev或vX.Y.Z")
+	}
+	flags := "-s -w -X main.version=" + *version + " -X github.com/kingsh2012/aiagent-ssh-proxy/internal/winagent.embeddedCABase64=" + base64.StdEncoding.EncodeToString(data)
 	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", flags, "-o", *out, "./cmd/windows-agent")
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")

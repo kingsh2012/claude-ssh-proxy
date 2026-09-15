@@ -2,15 +2,158 @@ package winagent
 
 import (
 	"context"
-	"github.com/pelletier/go-toml/v2"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/kingsh2012/aiagent-ssh-proxy/internal/agentwire"
+	"github.com/pelletier/go-toml/v2"
 )
+
+func waitEvent(t *testing.T, events <-chan Event, kind EventType) Event {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Type == kind {
+				return event
+			}
+		case <-deadline:
+			t.Fatalf("未收到事件%s", kind)
+		}
+	}
+}
+
+func TestRunReportsConnectTaskDisconnectAndReconnect(t *testing.T) {
+	events := make(chan Event, 32)
+	connections := make(chan int, 4)
+	upgrader := websocket.Upgrader{Subprotocols: []string{"claude-agent-v1"}}
+	command := "exit 7"
+	if runtime.GOOS == "windows" {
+		command = "Write-Output 'event-stdout'; [Console]::Error.WriteLine('event-stderr'); exit 7"
+	}
+	count := 0
+	var countMu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		countMu.Lock()
+		count++
+		current := count
+		countMu.Unlock()
+		connections <- current
+		if current == 1 {
+			return
+		}
+		if err := conn.WriteJSON(agentwire.Message{Type: "exec", ID: "task-status-test", Command: command}); err != nil {
+			return
+		}
+		for {
+			var message agentwire.Message
+			if conn.ReadJSON(&message) != nil {
+				return
+			}
+			if message.Type == "exit" && message.ID == "task-status-test" {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		run(ctx, Config{
+			ServerURL: "ws" + strings.TrimPrefix(server.URL, "http") + "/agent",
+			Token:     strings.Repeat("a", 64),
+			Hostname:  "event-test",
+		}, func(event Event) { events <- event }, 10*time.Millisecond)
+		close(done)
+	}()
+
+	first := waitEvent(t, events, EventConnected)
+	if first.Reconnected {
+		t.Fatal("首次连接错误标记为重连")
+	}
+	waitEvent(t, events, EventDisconnected)
+	second := waitEvent(t, events, EventConnected)
+	if !second.Reconnected {
+		t.Fatal("重连成功未标记")
+	}
+	started := waitEvent(t, events, EventTaskStarted)
+	if started.TaskID != "task-status-test" || started.Command != command {
+		t.Fatalf("任务开始事件错误：%+v", started)
+	}
+	var stdout, stderr strings.Builder
+	var finished Event
+	deadline := time.After(3 * time.Second)
+waitForFinish:
+	for {
+		select {
+		case event := <-events:
+			switch event.Type {
+			case EventTaskOutput:
+				if event.Stream == "stdout" {
+					stdout.Write(event.Data)
+				} else if event.Stream == "stderr" {
+					stderr.Write(event.Data)
+				}
+			case EventTaskFinished:
+				finished = event
+				break waitForFinish
+			}
+		case <-deadline:
+			t.Fatal("未收到任务结束事件")
+		}
+	}
+	if finished.TaskID != "task-status-test" || finished.Duration <= 0 {
+		t.Fatalf("任务结束事件错误：%+v", finished)
+	}
+	if runtime.GOOS == "windows" {
+		if !strings.Contains(stdout.String(), "event-stdout") {
+			t.Fatalf("标准输出事件缺少任务内容：%q", stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "event-stderr") {
+			t.Fatalf("标准错误事件缺少任务内容：%q", stderr.String())
+		}
+	} else if !strings.Contains(stderr.String(), "PowerShell Agent requires Windows") {
+		t.Fatalf("非Windows执行错误未写入标准错误事件：%q", stderr.String())
+	}
+	select {
+	case firstConnection := <-connections:
+		if firstConnection != 1 {
+			t.Fatal(fmt.Sprintf("首次连接编号错误：%d", firstConnection))
+		}
+	default:
+		t.Fatal("服务端未收到首次连接")
+	}
+	select {
+	case secondConnection := <-connections:
+		if secondConnection != 2 {
+			t.Fatal(fmt.Sprintf("重连编号错误：%d", secondConnection))
+		}
+	default:
+		t.Fatal("服务端未收到重连")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("关闭后Run未退出")
+	}
+}
 
 func TestHostnameOverrideAndDefaultAreSent(t *testing.T) {
 	localName, err := os.Hostname()

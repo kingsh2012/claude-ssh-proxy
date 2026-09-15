@@ -28,12 +28,23 @@ flowchart LR
 在“服务设置”保存公网WSS地址（wss://proxy.example.com/agent）或HTTPS主域名（https://proxy.example.com），在“服务器自注册”中生成并保存Token，然后在Windows上运行：
 
 ```powershell
-.\aiagent-ssh-client.exe -token '自注册Token' -hostname 'es-windows-01'
+.\aiagent-ssh-client.exe -token '服务器自注册Token' -hostname 'es-windows-01'
 ```
 
 Token包含连接地址；省略 `-hostname` 时使用系统主机名。注册后需在后台手动关联客户端凭证，才能通过SSH访问。
 
-Windows当前支持非交互命令和通过命令读取文件，每台主机同时执行一个任务，最长 5 分钟；不支持SFTP、PTY、stdin和端口转发。
+Windows当前支持非交互命令和通过命令读取文件，每台主机同时执行一个任务，最长5分钟；不支持SFTP、PTY、stdin和端口转发。
+
+客户端会输出首次连接成功、连接失败或断开、重连成功、收到的完整命令、PowerShell标准输出与标准错误、任务取消、退出码与耗时，以及Ctrl+C关闭过程。客户端不主动输出Token；命令或结果中的敏感内容会显示在客户端窗口中，使用时注意终端记录和截屏范围。
+
+查看版本或升级客户端：
+
+```powershell
+.\aiagent-ssh-client.exe -version
+.\aiagent-ssh-client.exe -upgrade
+```
+
+`-upgrade`从GitHub最新Release下载Windows客户端，同时核对发布的SHA-256校验文件。校验通过后，客户端退出并由后台进程替换当前`.exe`。内置的部署CA公钥证书会保存为同目录的`aiagent-ssh-client-ca.crt`，后续版本继续读取该证书；文件不包含CA私钥或注册Token。升级需要当前目录写权限和访问GitHub的出站网络。
 
 ## 部署与安全
 

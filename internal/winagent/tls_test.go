@@ -63,4 +63,34 @@ func TestEmbeddedCAValidatesIPAndRejectsWrongIdentity(t *testing.T) {
 			t.Fatal("malformed embedded CA silently ignored")
 		}
 	}
+	executable := filepath.Join(dir, "renamed-client.exe")
+	if err := os.WriteFile(clientCAPath(executable), caPEM, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientTLSConfigForExecutable("", executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &http.Transport{TLSClientConfig: cfg}
+	defer transport.CloseIdleConnections()
+	resp, err := (&http.Client{Transport: transport, Timeout: 3 * time.Second}).Get(srv.URL)
+	if err != nil {
+		t.Fatalf("外部CA未被客户端加载：%v", err)
+	}
+	resp.Body.Close()
+
+	originalEmbeddedCA := embeddedCABase64
+	embeddedCABase64 = base64.StdEncoding.EncodeToString(caPEM)
+	defer func() { embeddedCABase64 = originalEmbeddedCA }()
+	preservedExecutable := filepath.Join(dir, "preserved-client.exe")
+	if err := preserveEmbeddedCA(preservedExecutable); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := os.ReadFile(clientCAPath(preservedExecutable))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(preserved) != string(caPEM) {
+		t.Fatal("升级时保存的CA与内置CA不一致")
+	}
 }

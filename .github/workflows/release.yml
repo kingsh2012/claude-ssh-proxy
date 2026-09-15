@@ -56,12 +56,13 @@ jobs:
           CGO_ENABLED: 0
         run: |
           mkdir -p dist/aiagent-ssh-client-windows-amd64
-          go build -trimpath -ldflags="-s -w" -o dist/aiagent-ssh-client-windows-amd64/aiagent-ssh-client.exe ./cmd/windows-agent
+          go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o dist/aiagent-ssh-client-windows-amd64/aiagent-ssh-client.exe ./cmd/windows-agent
           cp README.md dist/aiagent-ssh-client-windows-amd64/README.md
           mkdir -p dist/aiagent-ssh-client-windows-amd64/docs
           cp docs/20260911-windows-agent.md dist/aiagent-ssh-client-windows-amd64/docs/20260911-windows-agent.md
           cd dist
           zip -r aiagent-ssh-client-windows-amd64.zip aiagent-ssh-client-windows-amd64
+          sha256sum aiagent-ssh-client-windows-amd64.zip > aiagent-ssh-client-windows-amd64.zip.sha256
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -69,4 +70,5 @@ jobs:
           files: |
             dist/*.tar.gz
             dist/*.zip
+            dist/*.sha256
           generate_release_notes: true

@@ -7,7 +7,7 @@ import {
   ClearOutlined,
   MoreOutlined,
 } from "@ant-design/icons";
-import { ToolbarIconAction, ListToolbarSearch } from "./ListControls";
+import { ToolbarIconAction, ListToolbarSearch, TextColumnFilter } from "./ListControls";
 import { useListView } from "./useListView";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
 
@@ -32,6 +32,7 @@ import {
   type ClientCredential,
   type ServerRecord,
   type ServerCredential,
+  type ServerOwnership,
 } from "./api";
 import { ChipList } from "./ChipList";
 
@@ -43,6 +44,8 @@ const emptyServer: ServerRecord = {
   proxy_user: "",
   target_host: "",
   target_port: 22,
+  ownership: "",
+  remark: "",
   route_mode: "fixed",
   port_min: 1,
   port_max: 65535,
@@ -53,6 +56,19 @@ const emptyServer: ServerRecord = {
   last_test_at: null,
   last_test_ok: null,
   server_credential_id: null,
+};
+
+const ownershipLabels: Record<ServerOwnership, string> = {
+  "": "未分类",
+  pve_vm: "PVE VM",
+  physical: "物理机",
+  cloud: "云服务器",
+};
+
+const ownershipColors: Record<Exclude<ServerOwnership, "">, string> = {
+  pve_vm: "cyan",
+  physical: "blue",
+  cloud: "gold",
 };
 
 type BulkCredentialKind = "server" | "client";
@@ -122,7 +138,7 @@ export function ServersPage() {
 
   async function bulkAction(action: "disable" | "enable" | "delete") {
     if (bulkBusy) return;
-    const targets = servers.filter((server) => selectedServerIds.includes(server.id));
+    const targets = servers.filter((server) => selectedServerIdsInView.includes(server.id));
     if (!targets.length) return;
     const label = action === "delete" ? "删除" : action === "enable" ? "解禁" : "禁用";
     setBulkBusy(true);
@@ -160,7 +176,7 @@ export function ServersPage() {
     if (kind === "server") {
       const sshCount = servers.filter(
         (server) =>
-          selectedServerIds.includes(server.id) &&
+          selectedServerIdsInView.includes(server.id) &&
           server.connection_type !== "agent",
       ).length;
       if (!sshCount) {
@@ -176,7 +192,7 @@ export function ServersPage() {
 
   async function submitBulkCredential() {
     if (!bulkCredentialKind || bulkBusy) return;
-    const serverIDs = selectedServerIds.filter((id) =>
+    const serverIDs = selectedServerIdsInView.filter((id) =>
       bulkCredentialKind === "client"
         ? true
         : servers.some(
@@ -280,6 +296,31 @@ export function ServersPage() {
     }
   }
 
+  async function testSelected() {
+    const serverIDs = selectedServerIdsInView.filter((id) =>
+      servers.some(
+        (server) => server.id === id && server.route_mode !== "dynamic_port",
+      ),
+    );
+    if (!serverIDs.length) {
+      alert("选中的服务器没有可测试的固定目标");
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const updated = await api.testServers(serverIDs);
+      const byID = new Map(updated.map((server) => [server.id, server]));
+      setServers((previous) =>
+        previous.map((server) => byID.get(server.id) ?? server),
+      );
+      success(`${updated.length} 台服务器测试完成`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "批量测试失败");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   async function toggleEnabled(s: ServerRecord) {
     try {
       const updated = await api.setServerEnabled(s.proxy_user, !s.enabled);
@@ -355,6 +396,7 @@ export function ServersPage() {
     {
       title: "主机 / 代理登录名",
       dataIndex: "proxy_user",
+      filterDropdown: TextColumnFilter,
       width: 280,
       sorter: (a, b) => a.proxy_user.localeCompare(b.proxy_user),
       render: (_, s) => (
@@ -375,6 +417,39 @@ export function ServersPage() {
           </div>
         </div>
       ),
+    },
+    {
+      title: "归属",
+      dataIndex: "ownership",
+      filters: [
+        { text: "PVE VM", value: "pve_vm" },
+        { text: "物理机", value: "physical" },
+        { text: "云服务器", value: "cloud" },
+        { text: "未分类", value: "unclassified" },
+      ],
+      width: 120,
+      sorter: (a, b) => a.ownership.localeCompare(b.ownership),
+      render: (_, s) =>
+        s.ownership ? (
+          <Tag color={ownershipColors[s.ownership]}>{ownershipLabels[s.ownership]}</Tag>
+        ) : (
+          <Typography.Text type="secondary">未分类</Typography.Text>
+        ),
+    },
+    {
+      title: "备注",
+      dataIndex: "remark",
+      filterDropdown: TextColumnFilter,
+      width: 240,
+      sorter: (a, b) => a.remark.localeCompare(b.remark),
+      render: (_, s) =>
+        s.remark ? (
+          <Typography.Text ellipsis={{ tooltip: s.remark }} style={{ maxWidth: "100%" }}>
+            {s.remark}
+          </Typography.Text>
+        ) : (
+          <Typography.Text type="secondary">-</Typography.Text>
+        ),
     },
     {
       title: "接入方式",
@@ -439,6 +514,7 @@ export function ServersPage() {
     {
       title: "访问凭证",
       key: "credentials",
+      filterDropdown: TextColumnFilter,
       width: 270,
       render: (_, s) => (
         <div className="credentials-cell">
@@ -513,14 +589,45 @@ export function ServersPage() {
     },
   ];
   const view = useListView(servers, columns, "ServersPage", {
-    searchText: (s) => s.proxy_user + " " + s.target_host,
+    searchText: (s) =>
+      [s.proxy_user, s.target_host, ownershipLabels[s.ownership], s.remark].join(" "),
     match: (s, key, value) =>
       key === "connection_type"
         ? (s.connection_type || "ssh") === value
+        : key === "proxy_user"
+          ? `${s.proxy_user} ${s.target_host}`.toLowerCase().includes(value.toLowerCase())
+        : key === "ownership"
+          ? value === "unclassified"
+            ? !s.ownership
+            : s.ownership === value
+        : key === "remark"
+          ? s.remark.toLowerCase().includes(value.toLowerCase())
+        : key === "credentials"
+          ? [
+              ...(s.client_credential_labels ?? []),
+              s.server_credential_label ?? "",
+              s.target_user ?? "",
+            ]
+              .join(" ")
+              .toLowerCase()
+              .includes(value.toLowerCase())
         : key === "enabled"
           ? String(s.enabled) === value
           : String(s.last_test_ok) === value,
   });
+  const visibleServerIDKey = view.filteredRows.map((server) => server.id).join(",");
+  const visibleServerIDs = new Set(view.filteredRows.map((server) => server.id));
+  const selectedServerIdsInView = selectedServerIds.filter((id) => visibleServerIDs.has(id));
+
+  useEffect(() => {
+    const visibleIDs = new Set(
+      visibleServerIDKey ? visibleServerIDKey.split(",").map(Number) : [],
+    );
+    setSelectedServerIds((previous) => {
+      const next = previous.filter((id) => visibleIDs.has(id));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [visibleServerIDKey]);
 
   return (
     <PageContainer
@@ -541,9 +648,12 @@ export function ServersPage() {
 
         {...view.tableProps}
         rowSelection={{
-          selectedRowKeys: selectedServerIds,
-          preserveSelectedRowKeys: true,
-          onChange: (keys) => setSelectedServerIds(keys.map(Number)),
+          selectedRowKeys: selectedServerIdsInView,
+          preserveSelectedRowKeys: false,
+          onChange: (keys) =>
+            setSelectedServerIds(
+              keys.map(Number).filter((id) => visibleServerIDs.has(id)),
+            ),
           getCheckboxProps: () => ({ disabled: bulkBusy }),
           columnWidth: 32,
         }}
@@ -556,19 +666,20 @@ export function ServersPage() {
           <ListToolbarSearch
             value={view.query}
             onSearch={view.search}
-            placeholder="搜索代理登录名 / 目标地址"
+            placeholder="搜索主机、地址、归属或备注"
           />
         }
         toolBarRender={() => [
           <Dropdown
             key="bulk"
             trigger={["click"]}
-            disabled={bulkBusy || selectedServerIds.length === 0}
+            disabled={bulkBusy || selectedServerIdsInView.length === 0}
             menu={{
               items: [
                 { key: "serverCredential", label: "批量修改服务器凭证" },
                 { key: "clientCredentials", label: "批量修改客户端凭证" },
                 { type: "divider" },
+                { key: "test", label: "批量测试" },
                 { key: "disable", label: "批量禁用" },
                 { key: "enable", label: "批量启用" },
                 { key: "delete", label: "批量删除", danger: true },
@@ -578,14 +689,16 @@ export function ServersPage() {
                   openBulkCredential("server");
                 } else if (key === "clientCredentials") {
                   openBulkCredential("client");
+                } else if (key === "test") {
+                  void testSelected();
                 } else {
                   void bulkAction(key as "disable" | "enable" | "delete");
                 }
               },
             }}
           >
-            <Button disabled={bulkBusy || selectedServerIds.length === 0}>
-              批量操作{selectedServerIds.length > 0 ? ` (${selectedServerIds.length})` : ""} <DownOutlined />
+            <Button disabled={bulkBusy || selectedServerIdsInView.length === 0}>
+              批量操作{selectedServerIdsInView.length > 0 ? ` (${selectedServerIdsInView.length})` : ""} <DownOutlined />
             </Button>
           </Dropdown>,
           <Button key="create" disabled={bulkBusy} type="primary" onClick={startCreate}>
@@ -672,11 +785,11 @@ export function ServersPage() {
       >
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
           <Typography.Text type="secondary">
-            已选择{selectedServerIds.length}台服务器
+            已选择{selectedServerIdsInView.length}台服务器
             {bulkCredentialKind === "server" &&
               servers.some(
                 (server) =>
-                  selectedServerIds.includes(server.id) &&
+                  selectedServerIdsInView.includes(server.id) &&
                   server.connection_type === "agent",
               ) && "，其中Agent服务器将跳过"}
           </Typography.Text>
@@ -761,6 +874,8 @@ function TestStatus({ server }: { server: ServerRecord }) {
 }
 
 const IMPORT_HEADER =
+  "proxy_user,target_host,target_port,ownership,remark,server_credential_id,client_credential_id";
+const LEGACY_IMPORT_HEADER =
   "proxy_user,target_host,target_port,server_credential_id,client_credential_id";
 
 interface ParsedImportRow {
@@ -768,6 +883,8 @@ interface ParsedImportRow {
   proxy_user: string;
   target_host: string;
   target_port: number;
+  ownership: ServerOwnership;
+  remark: string;
   server_credential_id: number | null;
   client_credential_ids: number[];
 }
@@ -793,7 +910,8 @@ function parseImportCSV(
   }
 
   const header = lines[0].trim();
-  if (header !== IMPORT_HEADER) {
+  const legacyFormat = header === LEGACY_IMPORT_HEADER;
+  if (header !== IMPORT_HEADER && !legacyFormat) {
     return { rows: [], errors: [`表头必须是: ${IMPORT_HEADER}`] };
   }
 
@@ -806,23 +924,30 @@ function parseImportCSV(
     const raw = lines[i];
     if (raw.trim() === "") continue;
     const cols = raw.split(",");
-    if (cols.length !== 5) {
-      errors.push(`第 ${lineNo} 行:应为 5 列,实际 ${cols.length} 列`);
+    const expectedColumns = legacyFormat ? 5 : 7;
+    if (cols.length !== expectedColumns) {
+      errors.push(`第 ${lineNo} 行:应为 ${expectedColumns} 列,实际 ${cols.length} 列`);
       continue;
     }
-    const [
-      proxyUserRaw,
-      targetHostRaw,
-      targetPortRaw,
-      serverCredRaw,
-      clientCredRaw,
-    ] = cols.map((c) => c.trim());
+    const values = cols.map((c) => c.trim());
+    const [proxyUserRaw, targetHostRaw, targetPortRaw] = values;
+    const ownershipRaw = legacyFormat ? "" : values[3];
+    const remarkRaw = legacyFormat ? "" : values[4];
+    const serverCredRaw = values[legacyFormat ? 3 : 5];
+    const clientCredRaw = values[legacyFormat ? 4 : 6];
 
     if (!proxyUserRaw) {
       errors.push(`第 ${lineNo} 行:proxy_user不能为空`);
     }
     if (!targetHostRaw) {
       errors.push(`第 ${lineNo} 行:target_host不能为空`);
+    }
+
+    const validOwnerships: ServerOwnership[] = ["", "pve_vm", "physical", "cloud"];
+    if (!validOwnerships.includes(ownershipRaw as ServerOwnership)) {
+      errors.push(
+        `第 ${lineNo} 行:ownership "${ownershipRaw}" 不合法,应为pve_vm、physical、cloud或留空`,
+      );
     }
 
     let targetPort = 22;
@@ -868,6 +993,8 @@ function parseImportCSV(
       proxy_user: proxyUserRaw,
       target_host: targetHostRaw,
       target_port: targetPort,
+      ownership: ownershipRaw as ServerOwnership,
+      remark: remarkRaw,
       server_credential_id: serverCredentialId,
       client_credential_ids: clientCredentialIds,
     });
@@ -925,6 +1052,8 @@ function ImportModal({
           proxy_user: row.proxy_user,
           target_host: row.target_host,
           target_port: row.target_port,
+          ownership: row.ownership,
+          remark: row.remark,
           server_credential_id: row.server_credential_id,
         });
         await reconcileClientCredentials(
@@ -969,10 +1098,12 @@ function ImportModal({
         <code className="rounded bg-slate-100 px-1 ">proxy_user</code>{" "}
         是唯一键,已存在则覆盖更新,不存在则新增。
         <code className="rounded bg-slate-100 px-1 ">target_port</code>/
+        <code className="rounded bg-slate-100 px-1 ">ownership</code>/
+        <code className="rounded bg-slate-100 px-1 ">remark</code>/
         <code className="rounded bg-slate-100 px-1 ">server_credential_id</code>
         /
         <code className="rounded bg-slate-100 px-1 ">client_credential_id</code>{" "}
-        可以留空,分别默认 22、不关联服务器凭证、不关联客户端凭证;
+        可以留空。ownership支持pve_vm、physical、cloud；remark不能包含英文逗号；
         <code className="rounded bg-slate-100 px-1 ">
           client_credential_id
         </code>{" "}
@@ -980,9 +1111,9 @@ function ImportModal({
       </p>
       <pre className="mb-3 table-scroll overflow-x-auto rounded bg-slate-50 p-2 text-xs text-slate-600  ">
         {`${IMPORT_HEADER}
-srv1,192.168.1.2,,1,1;2
-srv2,192.168.1.3,22,,3
-srv3,192.168.1.4,,,`}
+srv1,192.168.1.2,,pve_vm,测试环境,1,1;2
+srv2,192.168.1.3,22,physical,机房物理机,,3
+srv3,192.168.1.4,,cloud,云主机,,`}
       </pre>
 
       <Input.TextArea

@@ -123,6 +123,7 @@ export function useListView<T extends object>(
   };
   return {
     query,
+    filteredRows: filtered,
     search: (value: string) => update({ query: value, page: "" }),
     hasFilters:
       !!query ||

@@ -5,6 +5,7 @@ import {
   ProFormDependency,
   ProFormDigit,
   ProFormSwitch,
+  ProFormTextArea,
 } from "@ant-design/pro-components";
 import { Collapse, Typography } from "antd";
 import { DownOutlined } from "@ant-design/icons";
@@ -118,6 +119,22 @@ export function ServerForm({
 
         </>
       )}
+      <ProFormSelect
+        name="ownership"
+        label="归属"
+        placeholder="选择服务器归属"
+        options={[
+          { value: "pve_vm", label: "PVE VM" },
+          { value: "physical", label: "物理机" },
+          { value: "cloud", label: "云服务器" },
+        ]}
+      />
+      <ProFormTextArea
+        name="remark"
+        label="备注"
+        placeholder="记录用途、连接限制或故障原因"
+        fieldProps={{ autoSize: { minRows: 2, maxRows: 5 } }}
+      />
       <ProFormSelect
         name="credentialIds"
         label="客户端凭证"

@@ -262,6 +262,8 @@ func (s *Store) migrate() error {
 			proxy_user TEXT NOT NULL UNIQUE,
 			target_host TEXT NOT NULL,
 			target_port INTEGER NOT NULL DEFAULT 22,
+			ownership TEXT NOT NULL DEFAULT '',
+			remark TEXT NOT NULL DEFAULT '',
 			enabled INTEGER NOT NULL DEFAULT 1,
 			legacy_algorithms INTEGER NOT NULL DEFAULT 0,
 			host_key_fingerprint TEXT NOT NULL DEFAULT '',
@@ -344,6 +346,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.ensureColumn("servers", "agent_token_hash", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("servers", "ownership", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("servers", "remark", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 
@@ -522,6 +530,8 @@ type ServerRecord struct {
 	ProxyUser      string `json:"proxy_user"`
 	TargetHost     string `json:"target_host"`
 	TargetPort     int    `json:"target_port"`
+	Ownership      string `json:"ownership"`
+	Remark         string `json:"remark"`
 	RouteMode      string `json:"route_mode"` // fixed | dynamic_port
 	PortMin        int    `json:"port_min"`
 	PortMax        int    `json:"port_max"`
@@ -558,7 +568,7 @@ type ServerRecord struct {
 	ServerCredentialLabel string `json:"server_credential_label,omitempty"` // 只读
 }
 
-const serverSelectColumns = `id, proxy_user, target_host, target_port, route_mode, port_min, port_max, enabled, legacy_algorithms, host_key_fingerprint,
+const serverSelectColumns = `id, proxy_user, target_host, target_port, ownership, remark, route_mode, port_min, port_max, enabled, legacy_algorithms, host_key_fingerprint,
 	last_test_at, last_test_ok, last_test_error, server_credential_id, connection_type, agent_token_hash`
 
 func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
@@ -569,7 +579,7 @@ func scanServer(scan func(dest ...any) error) (ServerRecord, error) {
 	var testAt sql.NullTime
 	var testOK sql.NullInt64
 	var credID sql.NullInt64
-	if err := scan(&r.ID, &r.ProxyUser, &r.TargetHost, &r.TargetPort, &r.RouteMode, &r.PortMin, &r.PortMax, &enabled, &legacyAlgorithms, &r.HostKeyFingerprint, &testAt, &testOK, &testErr, &credID, &r.ConnectionType, &r.AgentTokenHash); err != nil {
+	if err := scan(&r.ID, &r.ProxyUser, &r.TargetHost, &r.TargetPort, &r.Ownership, &r.Remark, &r.RouteMode, &r.PortMin, &r.PortMax, &enabled, &legacyAlgorithms, &r.HostKeyFingerprint, &testAt, &testOK, &testErr, &credID, &r.ConnectionType, &r.AgentTokenHash); err != nil {
 		return r, err
 	}
 	r.Enabled = enabled != 0
@@ -771,14 +781,14 @@ func (s *Store) UpsertServer(r ServerRecord) error {
 
 	var err error
 	if r.ID == 0 {
-		_, err = s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, route_mode, port_min, port_max, server_credential_id, legacy_algorithms, host_key_fingerprint, connection_type, updated_at)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-			r.ProxyUser, r.TargetHost, r.TargetPort, r.RouteMode, r.PortMin, r.PortMax, credentialID, boolToInt(r.LegacyAlgorithms), r.HostKeyFingerprint, r.ConnectionType)
+		_, err = s.db.Exec(`INSERT INTO servers(proxy_user, target_host, target_port, ownership, remark, route_mode, port_min, port_max, server_credential_id, legacy_algorithms, host_key_fingerprint, connection_type, updated_at)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+			r.ProxyUser, r.TargetHost, r.TargetPort, r.Ownership, r.Remark, r.RouteMode, r.PortMin, r.PortMax, credentialID, boolToInt(r.LegacyAlgorithms), r.HostKeyFingerprint, r.ConnectionType)
 	} else {
 		var res sql.Result
-		res, err = s.db.Exec(`UPDATE servers SET proxy_user = ?, target_host = ?, target_port = ?, route_mode = ?, port_min = ?, port_max = ?,
+		res, err = s.db.Exec(`UPDATE servers SET proxy_user = ?, target_host = ?, target_port = ?, ownership = ?, remark = ?, route_mode = ?, port_min = ?, port_max = ?,
 			server_credential_id = ?, legacy_algorithms = ?, host_key_fingerprint = ?, connection_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-			r.ProxyUser, r.TargetHost, r.TargetPort, r.RouteMode, r.PortMin, r.PortMax, credentialID, boolToInt(r.LegacyAlgorithms), r.HostKeyFingerprint, r.ConnectionType, r.ID)
+			r.ProxyUser, r.TargetHost, r.TargetPort, r.Ownership, r.Remark, r.RouteMode, r.PortMin, r.PortMax, credentialID, boolToInt(r.LegacyAlgorithms), r.HostKeyFingerprint, r.ConnectionType, r.ID)
 		if err == nil {
 			if n, _ := res.RowsAffected(); n == 0 {
 				return fmt.Errorf("服务器(id=%d)不存在", r.ID)

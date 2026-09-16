@@ -47,6 +47,7 @@ func (a *API) Router() http.Handler {
 	mux.HandleFunc("POST /api/servers", a.auth(a.handleUpsertServer))
 	mux.HandleFunc("PUT /api/servers/bulk/server-credential", a.auth(a.handleBulkServerCredential))
 	mux.HandleFunc("PUT /api/servers/bulk/client-credentials", a.auth(a.handleBulkClientCredentials))
+	mux.HandleFunc("POST /api/servers/bulk/test", a.auth(a.handleBulkTestServers))
 	mux.HandleFunc("DELETE /api/servers/{user}", a.auth(a.handleDeleteServer))
 	mux.HandleFunc("POST /api/servers/test-all", a.auth(a.handleTestAllServers))
 	mux.HandleFunc("POST /api/servers/{user}/agent-token", a.auth(a.handleRotateAgentToken))
@@ -227,6 +228,14 @@ func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 	var server ServerRecord
 	if !decodeJSON(w, r, &server) {
+		return
+	}
+	server.Ownership = strings.TrimSpace(server.Ownership)
+	server.Remark = strings.TrimSpace(server.Remark)
+	switch server.Ownership {
+	case "", "pve_vm", "physical", "cloud":
+	default:
+		writeError(w, http.StatusBadRequest, "ownership必须是pve_vm、physical或cloud")
 		return
 	}
 	if server.ConnectionType == "" {
@@ -415,6 +424,71 @@ func (a *API) handleTestServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, updated)
+}
+
+func (a *API) handleBulkTestServers(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ServerIDs []int64 `json:"server_ids"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	serverIDs, err := uniquePositiveIDs(body.ServerIDs, "服务器ID")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	servers, err := a.store.ListServers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	byID := make(map[int64]ServerRecord, len(servers))
+	for _, server := range servers {
+		byID[server.ID] = server
+	}
+	for _, id := range serverIDs {
+		server, ok := byID[id]
+		if !ok {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("服务器ID %d不存在", id))
+			return
+		}
+		if server.RouteMode == "dynamic_port" {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("服务器 %q是动态端口规则,不能批量测试", server.ProxyUser))
+			return
+		}
+	}
+
+	var wg sync.WaitGroup
+	for _, id := range serverIDs {
+		wg.Add(1)
+		go func(proxyUser string) {
+			defer wg.Done()
+			if _, err := a.runServerTest(proxyUser); err != nil {
+				log.Printf("批量测试服务器 %q失败: %v", proxyUser, err)
+			}
+		}(byID[id].ProxyUser)
+	}
+	wg.Wait()
+
+	updated, err := a.store.ListServers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	updatedByID := make(map[int64]ServerRecord, len(updated))
+	for _, server := range updated {
+		if a.proxy.agents != nil {
+			server.AgentOnline = a.proxy.agents.Online(server.ID)
+		}
+		server.AuthPassword, server.AuthPrivateKey, server.AuthPrivateKeyPassphrase = "", "", ""
+		updatedByID[server.ID] = server
+	}
+	result := make([]ServerRecord, 0, len(serverIDs))
+	for _, id := range serverIDs {
+		result = append(result, updatedByID[id])
+	}
+	writeJSON(w, result)
 }
 
 func (a *API) handleTestAllServers(w http.ResponseWriter, r *http.Request) {

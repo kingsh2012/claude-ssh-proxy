@@ -158,6 +158,91 @@ func TestDynamicPortServerValidation(t *testing.T) {
 	}
 }
 
+func TestServerMetadataAPI(t *testing.T) {
+	store := openTestStore(t)
+	if err := store.CreateAdminUser("admin", "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAdminPassword("admin", "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	api := NewAPI(store, &Proxy{store: store, connections: make(map[uint64]*ActiveConnection)})
+	token, err := api.issueToken("admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/servers", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+		api.Router().ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	if recorder := post(`{"proxy_user":"server-a","target_host":"10.0.0.1","ownership":"pve_vm","remark":"  测试虚拟机  "}`); recorder.Code != http.StatusOK {
+		t.Fatalf("server metadata was rejected: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	server, err := store.GetServer("server-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.Ownership != "pve_vm" || server.Remark != "测试虚拟机" {
+		t.Fatalf("server metadata was not normalized: %#v", server)
+	}
+	if recorder := post(`{"proxy_user":"server-b","target_host":"10.0.0.2","ownership":"unknown"}`); recorder.Code != http.StatusBadRequest {
+		t.Fatalf("invalid ownership was accepted: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestBulkTestServersAPIOnlyTestsSelectedServers(t *testing.T) {
+	store := openTestStore(t)
+	if err := store.CreateAdminUser("admin", "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAdminPassword("admin", "new-password"); err != nil {
+		t.Fatal(err)
+	}
+	for _, server := range []ServerRecord{
+		{ProxyUser: "server-a", TargetHost: "127.0.0.1", TargetPort: 1},
+		{ProxyUser: "server-b", TargetHost: "127.0.0.1", TargetPort: 2},
+	} {
+		if err := store.UpsertServer(server); err != nil {
+			t.Fatal(err)
+		}
+	}
+	serverA, _ := store.GetServer("server-a")
+	api := NewAPI(store, &Proxy{store: store, agents: NewAgentHub(store), connections: make(map[uint64]*ActiveConnection)})
+	token, err := api.issueToken("admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"server_ids": []int64{serverA.ID}})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/servers/bulk/test", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	api.Router().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("bulk test failed: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var tested []ServerRecord
+	if err := json.NewDecoder(recorder.Body).Decode(&tested); err != nil {
+		t.Fatal(err)
+	}
+	if len(tested) != 1 || tested[0].ProxyUser != "server-a" || tested[0].LastTestOK == nil || *tested[0].LastTestOK {
+		t.Fatalf("unexpected bulk test result: %#v", tested)
+	}
+	serverB, err := store.GetServer("server-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if serverB.LastTestAt != nil || serverB.LastTestOK != nil {
+		t.Fatalf("unselected server was tested: %#v", serverB)
+	}
+}
+
 func TestBulkCredentialAPIs(t *testing.T) {
 	store := openTestStore(t)
 	if err := store.CreateAdminUser("admin", "new-password"); err != nil {

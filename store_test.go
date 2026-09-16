@@ -105,6 +105,35 @@ func TestForeignKeysCascadeServerRelations(t *testing.T) {
 	}
 }
 
+func TestServerOwnershipAndRemarkRoundTrip(t *testing.T) {
+	store := openTestStore(t)
+	if err := store.UpsertServer(ServerRecord{
+		ProxyUser: "server-a", TargetHost: "10.0.0.1", TargetPort: 22,
+		Ownership: "pve_vm", Remark: "PVE测试虚拟机",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := store.GetServer("server-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.Ownership != "pve_vm" || server.Remark != "PVE测试虚拟机" {
+		t.Fatalf("server metadata was not saved: %#v", server)
+	}
+	server.Ownership = "physical"
+	server.Remark = "IDC物理机"
+	if err := store.UpsertServer(*server); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.GetServer("server-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Ownership != "physical" || updated.Remark != "IDC物理机" {
+		t.Fatalf("server metadata was not updated: %#v", updated)
+	}
+}
+
 func TestBulkUpdateServerCredentialOperations(t *testing.T) {
 	store := openTestStore(t)
 	credentialA, err := store.CreateServerCredential(ServerCredential{
@@ -290,6 +319,9 @@ func TestLegacyServerSchemaMigrationPreservesRelations(t *testing.T) {
 	}
 	if server.ID == 0 || len(server.ClientCredentialLabels) != 1 || server.ClientCredentialLabels[0] != "agent" {
 		t.Fatalf("legacy relation was not preserved: %#v", server)
+	}
+	if server.Ownership != "" || server.Remark != "" {
+		t.Fatalf("legacy server metadata defaults are invalid: %#v", server)
 	}
 }
 

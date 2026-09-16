@@ -8,6 +8,7 @@ export interface ListenerSettings {
 
 export type AuthType = "password" | "private_key";
 export type ClientAuthType = "public_key" | "password";
+export type ServerOwnership = "" | "pve_vm" | "physical" | "cloud";
 
 export interface ServerRecord {
   connection_type?: "ssh" | "agent";
@@ -16,6 +17,8 @@ export interface ServerRecord {
   proxy_user: string;
   target_host: string;
   target_port: number;
+  ownership: ServerOwnership;
+  remark: string;
   route_mode: "fixed" | "dynamic_port";
   port_min: number;
   port_max: number;
@@ -203,6 +206,11 @@ export const api = {
     ),
   testAllServers: () =>
     request<ServerRecord[]>("/api/servers/test-all", { method: "POST" }),
+  testServers: (serverIds: number[]) =>
+    request<ServerRecord[]>("/api/servers/bulk/test", {
+      method: "POST",
+      body: JSON.stringify({ server_ids: serverIds }),
+    }),
   setServerEnabled: (proxyUser: string, enabled: boolean) =>
     request<ServerRecord>(
       `/api/servers/${encodeURIComponent(proxyUser)}/enabled`,

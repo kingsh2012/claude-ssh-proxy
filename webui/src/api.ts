@@ -11,6 +11,7 @@ export type ClientAuthType = "public_key" | "password";
 export type ServerOwnership =
   | ""
   | "pve_vm"
+  | "office_pve"
   | "physical"
   | "cloud"
   | "network_device";

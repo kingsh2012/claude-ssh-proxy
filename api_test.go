@@ -191,6 +191,9 @@ func TestServerMetadataAPI(t *testing.T) {
 	if server.Ownership != "network_device" || server.Remark != "核心交换机" {
 		t.Fatalf("server metadata was not normalized: %#v", server)
 	}
+	if recorder := post(`{"proxy_user":"server-office","target_host":"10.0.0.3","ownership":"office_pve"}`); recorder.Code != http.StatusOK {
+		t.Fatalf("office PVE ownership was rejected: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
 	if recorder := post(`{"proxy_user":"server-b","target_host":"10.0.0.2","ownership":"unknown"}`); recorder.Code != http.StatusBadRequest {
 		t.Fatalf("invalid ownership was accepted: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}

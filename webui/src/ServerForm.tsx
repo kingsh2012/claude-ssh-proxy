@@ -124,7 +124,8 @@ export function ServerForm({
         label="归属"
         placeholder="选择服务器归属"
         options={[
-          { value: "pve_vm", label: "PVE" },
+          { value: "pve_vm", label: "IDC-PVE" },
+          { value: "office_pve", label: "OFFICE-PVE" },
           { value: "physical", label: "物理机" },
           { value: "cloud", label: "云服务器" },
           { value: "network_device", label: "网络设备" },

@@ -60,15 +60,17 @@ const emptyServer: ServerRecord = {
 
 const ownershipLabels: Record<ServerOwnership, string> = {
   "": "未分类",
-  pve_vm: "PVE VM",
+  pve_vm: "PVE",
   physical: "物理机",
   cloud: "云服务器",
+  network_device: "网络设备",
 };
 
 const ownershipColors: Record<Exclude<ServerOwnership, "">, string> = {
   pve_vm: "cyan",
   physical: "blue",
   cloud: "gold",
+  network_device: "green",
 };
 
 type BulkCredentialKind = "server" | "client";
@@ -422,9 +424,10 @@ export function ServersPage() {
       title: "归属",
       dataIndex: "ownership",
       filters: [
-        { text: "PVE VM", value: "pve_vm" },
+        { text: "PVE", value: "pve_vm" },
         { text: "物理机", value: "physical" },
         { text: "云服务器", value: "cloud" },
+        { text: "网络设备", value: "network_device" },
         { text: "未分类", value: "unclassified" },
       ],
       width: 120,
@@ -943,10 +946,16 @@ function parseImportCSV(
       errors.push(`第 ${lineNo} 行:target_host不能为空`);
     }
 
-    const validOwnerships: ServerOwnership[] = ["", "pve_vm", "physical", "cloud"];
+    const validOwnerships: ServerOwnership[] = [
+      "",
+      "pve_vm",
+      "physical",
+      "cloud",
+      "network_device",
+    ];
     if (!validOwnerships.includes(ownershipRaw as ServerOwnership)) {
       errors.push(
-        `第 ${lineNo} 行:ownership "${ownershipRaw}" 不合法,应为pve_vm、physical、cloud或留空`,
+        `第 ${lineNo} 行:ownership "${ownershipRaw}" 不合法,应为pve_vm、physical、cloud、network_device或留空`,
       );
     }
 
@@ -1103,7 +1112,7 @@ function ImportModal({
         <code className="rounded bg-slate-100 px-1 ">server_credential_id</code>
         /
         <code className="rounded bg-slate-100 px-1 ">client_credential_id</code>{" "}
-        可以留空。ownership支持pve_vm、physical、cloud；remark不能包含英文逗号；
+        可以留空。ownership支持pve_vm、physical、cloud、network_device；remark不能包含英文逗号；
         <code className="rounded bg-slate-100 px-1 ">
           client_credential_id
         </code>{" "}

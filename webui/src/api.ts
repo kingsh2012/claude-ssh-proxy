@@ -8,7 +8,12 @@ export interface ListenerSettings {
 
 export type AuthType = "password" | "private_key";
 export type ClientAuthType = "public_key" | "password";
-export type ServerOwnership = "" | "pve_vm" | "physical" | "cloud";
+export type ServerOwnership =
+  | ""
+  | "pve_vm"
+  | "physical"
+  | "cloud"
+  | "network_device";
 
 export interface ServerRecord {
   connection_type?: "ssh" | "agent";

@@ -233,9 +233,9 @@ func (a *API) handleUpsertServer(w http.ResponseWriter, r *http.Request) {
 	server.Ownership = strings.TrimSpace(server.Ownership)
 	server.Remark = strings.TrimSpace(server.Remark)
 	switch server.Ownership {
-	case "", "pve_vm", "physical", "cloud":
+	case "", "pve_vm", "physical", "cloud", "network_device":
 	default:
-		writeError(w, http.StatusBadRequest, "ownership必须是pve_vm、physical或cloud")
+		writeError(w, http.StatusBadRequest, "ownership必须是pve_vm、physical、cloud或network_device")
 		return
 	}
 	if server.ConnectionType == "" {

@@ -181,14 +181,14 @@ func TestServerMetadataAPI(t *testing.T) {
 		return recorder
 	}
 
-	if recorder := post(`{"proxy_user":"server-a","target_host":"10.0.0.1","ownership":"pve_vm","remark":"  测试虚拟机  "}`); recorder.Code != http.StatusOK {
+	if recorder := post(`{"proxy_user":"server-a","target_host":"10.0.0.1","ownership":"network_device","remark":"  核心交换机  "}`); recorder.Code != http.StatusOK {
 		t.Fatalf("server metadata was rejected: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	server, err := store.GetServer("server-a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if server.Ownership != "pve_vm" || server.Remark != "测试虚拟机" {
+	if server.Ownership != "network_device" || server.Remark != "核心交换机" {
 		t.Fatalf("server metadata was not normalized: %#v", server)
 	}
 	if recorder := post(`{"proxy_user":"server-b","target_host":"10.0.0.2","ownership":"unknown"}`); recorder.Code != http.StatusBadRequest {

@@ -296,14 +296,16 @@ export const api = {
       body: JSON.stringify({ listen_addr: listenAddr }),
     }),
 
-  listAudit: (limit = 200, filters: AuditFilters = {}) => {
-    const params = new URLSearchParams({ limit: String(limit) });
+  listAudit: (limit = 200, filters: AuditFilters = {}, beforeId = 0) => {
+    const params = new URLSearchParams({ limit: String(limit), summary: "true" });
+    if (beforeId) params.set("before_id", String(beforeId));
     if (filters.proxyUser) params.set("proxy_user", filters.proxyUser);
     if (filters.targetHost) params.set("target_host", filters.targetHost);
     if (filters.clientCredentialLabel)
       params.set("client_credential_label", filters.clientCredentialLabel);
     return request<AuditLog[]>(`/api/audit?${params}`);
   },
+  getAudit: (id: number) => request<AuditLog>(`/api/audit/${id}`),
   listConnections: () => request<ActiveConnection[]>("/api/connections"),
 };
 

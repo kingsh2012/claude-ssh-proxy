@@ -1,8 +1,10 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -75,6 +77,7 @@ func (a *API) Router() http.Handler {
 	mux.HandleFunc("PUT /api/settings", a.auth(a.handleUpdateSettings))
 
 	mux.HandleFunc("GET /api/audit", a.auth(a.handleListAudit))
+	mux.HandleFunc("GET /api/audit/{id}", a.auth(a.handleGetAudit))
 	mux.HandleFunc("GET /api/connections", a.auth(a.handleListConnections))
 
 	return mux
@@ -749,17 +752,47 @@ func (a *API) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleListAudit(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	beforeID, err := strconv.ParseInt(r.URL.Query().Get("before_id"), 10, 64)
+	if r.URL.Query().Has("before_id") && (err != nil || beforeID <= 0) {
+		writeError(w, http.StatusBadRequest, "历史日志游标无效")
+		return
+	}
 	filters := AuditFilters{
+		BeforeID:              beforeID,
 		ProxyUser:             r.URL.Query().Get("proxy_user"),
 		TargetHost:            r.URL.Query().Get("target_host"),
 		ClientCredentialLabel: r.URL.Query().Get("client_credential_label"),
 	}
-	logs, err := a.store.ListAuditLogs(limit, filters)
+	var logs []AuditLog
+	err = nil
+	if r.URL.Query().Get("summary") == "true" {
+		logs, err = a.store.ListAuditSummaries(limit, filters)
+	} else {
+		logs, err = a.store.ListAuditLogs(limit, filters)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, logs)
+}
+
+func (a *API) handleGetAudit(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "日志 ID 无效")
+		return
+	}
+	entry, err := a.store.GetAuditLog(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "日志不存在")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, entry)
 }
 
 func (a *API) handleListConnections(w http.ResponseWriter, r *http.Request) {

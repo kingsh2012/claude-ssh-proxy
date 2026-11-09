@@ -65,12 +65,6 @@ func (p *Proxy) Start(addr string) error {
 }
 
 func (p *Proxy) activateListener(ln net.Listener, addr string) {
-	serverCfg := &ssh.ServerConfig{
-		PublicKeyCallback: buildPublicKeyCallback(p.store),
-		PasswordCallback:  buildPasswordCallback(p.store),
-	}
-	serverCfg.AddHostKey(p.hostSigner)
-
 	p.listener = ln
 	p.listenAddr = addr
 
@@ -86,7 +80,7 @@ func (p *Proxy) activateListener(ln net.Listener, addr string) {
 				log.Printf("accept失败: %v", err)
 				return
 			}
-			go p.handleConn(nc, serverCfg)
+			go p.handleConn(nc, p.newServerConfig())
 		}
 	}()
 }
@@ -367,17 +361,19 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxy
 	}
 
 	var requestWG sync.WaitGroup
+	upstreamExited := make(chan struct{}, 1)
 	requestWG.Add(2)
 	go func() {
 		defer requestWG.Done()
-		forwardRequests(downReqs, upChan, audit)
+		forwardRequests(downReqs, upChan, audit, nil)
 	}()
 	go func() {
 		defer requestWG.Done()
-		forwardRequests(upReqs, downChan, audit)
+		forwardRequests(upReqs, downChan, audit, upstreamExited)
 	}()
 
 	var wg sync.WaitGroup
+	upstreamOutputDone := make(chan struct{})
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
@@ -390,6 +386,7 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxy
 	}()
 	go func() {
 		defer wg.Done()
+		defer close(upstreamOutputDone)
 		var reader io.Reader = upChan
 		if audit != nil {
 			reader = io.TeeReader(upChan, outputWriter{audit}) // 捕获server->client方向的数据(exec命令的输出)
@@ -397,7 +394,28 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxy
 		io.Copy(downChan, reader)
 		downChan.CloseWrite()
 	}()
+
+	// OpenSSH may keep the channel write side open while it waits for the
+	// remote exit-status and channel close. Waiting for that client-side EOF
+	// before closing downChan creates a cycle: the client waits for us, while
+	// the proxy waits in the downChan -> upChan copy. Once the upstream exit
+	// request has been forwarded and its output is drained, close both channel
+	// objects to finish the session and unblock the remaining copy/request loops.
+	channelClosing := make(chan struct{})
+	go func() {
+		select {
+		case <-upstreamExited:
+			select {
+			case <-upstreamOutputDone:
+			case <-time.After(time.Second):
+			}
+			_ = upChan.Close()
+			_ = downChan.Close()
+		case <-channelClosing:
+		}
+	}()
 	wg.Wait()
+	close(channelClosing)
 	_ = upChan.Close()
 	_ = downChan.Close()
 	requestWG.Wait()
@@ -405,7 +423,7 @@ func (p *Proxy) forwardChannel(newChan ssh.NewChannel, client *ssh.Client, proxy
 
 // forwardRequests 把一侧收到的 out-of-band 请求(pty-req/shell/exec/env/window-change/exit-status 等)
 // 原样转发给另一侧,并把 reply 结果传回去;顺带喂给 audit 做审计记录。
-func forwardRequests(in <-chan *ssh.Request, out ssh.Channel, audit *auditSession) {
+func forwardRequests(in <-chan *ssh.Request, out ssh.Channel, audit *auditSession, terminal chan<- struct{}) {
 	for req := range in {
 		if audit != nil {
 			audit.noteRequest(req)
@@ -416,6 +434,12 @@ func forwardRequests(in <-chan *ssh.Request, out ssh.Channel, audit *auditSessio
 				req.Reply(false, nil)
 			} else {
 				req.Reply(ok, nil)
+			}
+		}
+		if terminal != nil && (req.Type == "exit-status" || req.Type == "exit-signal") {
+			select {
+			case terminal <- struct{}{}:
+			default:
 			}
 		}
 	}

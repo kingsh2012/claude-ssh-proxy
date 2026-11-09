@@ -65,3 +65,59 @@ func buildPasswordCallback(store *Store) func(conn ssh.ConnMetadata, password []
 		return nil, fmt.Errorf("密码不匹配用户 %q", user)
 	}
 }
+
+// newServerConfig creates authentication state for one connection. The initial
+// "none" request ONLY selects methods; it never grants anonymous access.
+func (p *Proxy) newServerConfig() *ssh.ServerConfig {
+	publicKey := buildPublicKeyCallback(p.store)
+	password := buildPasswordCallback(p.store)
+	var preAuth ssh.ServerPreAuthConn
+	warned := false
+	config := &ssh.ServerConfig{
+		NoClientAuth:        true,
+		PreAuthConnCallback: func(conn ssh.ServerPreAuthConn) { preAuth = conn },
+	}
+	config.PublicKeyCallback = func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+		permissions, err := publicKey(conn, key)
+		if err != nil && !warned {
+			warned = true
+			return nil, &ssh.BannerError{Err: err, Message: "SSH Proxy：本次提供的公钥未获此主机授权，或目标不可用。\r\n请检查私钥及主机授权；如有其他密钥，客户端将继续尝试。\r\n"}
+		}
+		return permissions, err
+	}
+	config.PasswordCallback = func(conn ssh.ConnMetadata, value []byte) (*ssh.Permissions, error) {
+		permissions, err := password(conn, value)
+		if err != nil {
+			return nil, &ssh.BannerError{Err: err, Message: "SSH Proxy：客户端密码错误、未获此主机授权，或目标不可用。\r\n此处需要客户端凭据密码，不是目标服务器密码。\r\n"}
+		}
+		return permissions, nil
+	}
+	config.NoClientAuthCallback = func(conn ssh.ConnMetadata) (*ssh.Permissions, error) {
+		next := ssh.ServerAuthCallbacks{PublicKeyCallback: config.PublicKeyCallback}
+		server, err := p.store.ResolveServer(conn.User())
+		if err != nil || !server.Enabled {
+			if preAuth != nil {
+				_ = preAuth.SendAuthBanner("SSH Proxy：目标不存在、已禁用或暂不可用，请联系管理员核对。\r\n")
+			}
+			return nil, &ssh.PartialSuccessError{Next: next}
+		}
+		credentials, err := p.store.ListClientCredentialsForServerID(server.ID)
+		if err != nil {
+			return nil, &ssh.PartialSuccessError{Next: next}
+		}
+		if len(credentials) == 0 && preAuth != nil {
+			_ = preAuth.SendAuthBanner("SSH Proxy：此主机尚未授权任何客户端凭据，请联系管理员授权。\r\n")
+		}
+		for _, credential := range credentials {
+			if credential.AuthType == "password" && credential.HasPassword {
+				next.PasswordCallback = config.PasswordCallback
+				break
+			}
+		}
+		// This is an SSH method-selection step, not successful authentication.
+		// A signed authorized key or matching client password is still mandatory.
+		return nil, &ssh.PartialSuccessError{Next: next}
+	}
+	config.AddHostKey(p.hostSigner)
+	return config
+}

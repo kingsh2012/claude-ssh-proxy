@@ -318,6 +318,8 @@ func (s *Store) migrate() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(ts)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_proxy_user ON audit_logs(proxy_user)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_target_host ON audit_logs(target_host)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_client_label ON audit_logs(client_credential_label)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -1437,19 +1439,51 @@ func boolToInt(b bool) int {
 }
 
 type AuditFilters struct {
+	BeforeID              int64
+	ID                    int64
 	ProxyUser             string
 	TargetHost            string
 	ClientCredentialLabel string
 }
 
 func (s *Store) ListAuditLogs(limit int, filters AuditFilters) ([]AuditLog, error) {
+	return s.listAuditLogs(limit, filters, false)
+}
+
+func (s *Store) ListAuditSummaries(limit int, filters AuditFilters) ([]AuditLog, error) {
+	return s.listAuditLogs(limit, filters, true)
+}
+
+func (s *Store) GetAuditLog(id int64) (*AuditLog, error) {
+	logs, err := s.listAuditLogs(1, AuditFilters{ID: id}, false)
+	if err != nil {
+		return nil, err
+	}
+	if len(logs) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return &logs[0], nil
+}
+
+func (s *Store) listAuditLogs(limit int, filters AuditFilters, summary bool) ([]AuditLog, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	query := `SELECT id, ts, proxy_user, remote_addr, target_host, target_port, event_type, command, output, detail, exit_status, truncated, status, client_credential_label
-		FROM audit_logs`
+	content := "command, output, detail"
+	if summary {
+		content = "'' AS command, '' AS output, '' AS detail"
+	}
+	query := `SELECT id, ts, proxy_user, remote_addr, target_host, target_port, event_type, ` + content + `, exit_status, truncated, status, client_credential_label FROM audit_logs`
 	args := []any{}
 	conditions := []string{}
+	if filters.BeforeID > 0 {
+		conditions = append(conditions, `id < ?`)
+		args = append(args, filters.BeforeID)
+	}
+	if filters.ID != 0 {
+		conditions = append(conditions, `id = ?`)
+		args = append(args, filters.ID)
+	}
 	if filters.ProxyUser != "" {
 		conditions = append(conditions, `proxy_user = ?`)
 		args = append(args, filters.ProxyUser)
@@ -1496,7 +1530,7 @@ func (s *Store) ListAuditLogs(limit int, filters AuditFilters) ([]AuditLog, erro
 		a.ClientCredentialLabel = clientCredentialLabel.String
 		out = append(out, a)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func randomPassword() string {

@@ -8,13 +8,20 @@ import {
 import { ToolbarIconAction, TextColumnFilter } from "./ListControls";
 import { useListView } from "./useListView";
 import { PageContainer, ProTable } from "@ant-design/pro-components";
-import { Tag, Button, Modal, App } from "antd";
-import { useEffect, useState } from "react";
+import { Tag, Button, Modal, App, Spin } from "antd";
+import { useEffect, useRef, useState } from "react";
 import { api, type AuditLog } from "./api";
 
 export function AuditPage() {
+  const [cursors, setCursors] = useState<number[]>([0]);
+  const beforeId = cursors[cursors.length - 1];
+  const [hasOlder, setHasOlder] = useState(false);
+  const listRequest = useRef(0);
+  const pendingList = useRef<number | null>(null);
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [detail, setDetail] = useState<AuditLog | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
   const [params] = useSearchParams();
   const proxyUser = params.get("proxy_user") || "";
   const targetHost = params.get("target_host") || "";
@@ -24,39 +31,71 @@ export function AuditPage() {
 
   const [error, setError] = useState("");
   async function load(silent = false) {
+    if (silent && pendingList.current !== null) return;
+    const requestId = ++listRequest.current;
+    pendingList.current = requestId;
     if (!silent) setRefreshing(true);
     try {
-      const next = (await api.listAudit(200, {
+      const batch = (await api.listAudit(201, {
           proxyUser,
           targetHost,
           clientCredentialLabel,
-        })) ?? [];
+        }, beforeId)) ?? [];
+      if (requestId !== listRequest.current) return;
+      setHasOlder(batch.length > 200);
+      const next = batch.slice(0, 200);
       setLogs((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
-      setDetail((previous) => previous ? next.find((log) => log.id === previous.id) ?? previous : null);
       setError("");
     } catch {
+      if (requestId !== listRequest.current) return;
       setError("读取审计日志失败");
       if (!silent) void message.error({ content: "读取审计日志失败", key: "audit-load" });
     } finally {
-      if (!silent) setRefreshing(false);
+      if (pendingList.current === requestId) pendingList.current = null;
+      if (requestId === listRequest.current) setRefreshing(false);
     }
   }
 
   async function refresh() {
-    setRefreshing(true);
-    try {
-      await load();
-    } finally {
-      setRefreshing(false);
-    }
+    await load();
   }
 
+  useEffect(() => { setCursors([0]); }, [proxyUser, targetHost, clientCredentialLabel]);
+
   useEffect(() => {
-    load();
+    void load();
     const t = setInterval(() => void load(true), 5000);
-    return () => clearInterval(t);
+    const requests = listRequest;
+    return () => { clearInterval(t); ++requests.current; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proxyUser, targetHost, clientCredentialLabel]);
+  }, [proxyUser, targetHost, clientCredentialLabel, beforeId]);
+
+  useEffect(() => {
+    if (!detail) return;
+    let active = true;
+    let fetching = false;
+    let completed = false;
+    async function loadDetail(initial = false) {
+      if (fetching || completed) return;
+      fetching = true;
+      if (initial) setDetailLoading(true);
+      try {
+        const next = await api.getAudit(detail!.id);
+        if (active) { completed = next.status === "completed"; setDetail(next); setDetailError(""); }
+      } catch {
+        if (active) setDetailError("详情读取失败，请关闭后重试");
+      } finally {
+        fetching = false;
+        if (active) setDetailLoading(false);
+      }
+    }
+    setDetailError("");
+    void loadDetail(true);
+    const timer = setInterval(() => void loadDetail(), 5000);
+    return () => { active = false; clearInterval(timer); };
+    // The ID controls the request lifetime; summary refreshes never overwrite content.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id]);
 
   const columns: ProColumns<AuditLog>[] = [
     {
@@ -118,7 +157,7 @@ export function AuditPage() {
       title: "操作",
       key: "option",
       width: 90,
-      render: (_, record) => <Button type="link" onClick={() => setDetail(record)}>详情</Button>,
+      render: (_, record) => <Button type="link" onClick={() => { setDetailLoading(true); setDetail(record); }}>详情</Button>,
     },
   ];
   const view = useListView(logs, columns, "AuditPage", { match: () => true });
@@ -135,8 +174,10 @@ export function AuditPage() {
 
         {...view.tableProps}
         loading={loading}
-        headerTitle={`最近 200 条匹配记录 · ${error ? "更新失败，正在重试" : "每 5 秒自动更新"}`}
+        headerTitle={`全部日志 · 第 ${cursors.length} 批（每批最多 200 条）· ${error ? "更新失败，正在重试" : "每 5 秒自动更新"}`}
         toolBarRender={() => [
+          <Button key="newer" disabled={loading || cursors.length === 1} onClick={() => setCursors((current) => current.slice(0, -1))}>更新记录</Button>,
+          <Button key="older" disabled={loading || !hasOlder || logs.length === 0} onClick={() => setCursors((current) => [...current, logs[logs.length - 1].id])}>更早记录</Button>,
           <ToolbarIconAction
             key="refresh"
             label="刷新"
@@ -176,6 +217,8 @@ export function AuditPage() {
         width="min(1280px, calc(100vw - 32px))"
         destroyOnHidden
       >
+        {detailError && <div role="alert">{detailError}</div>}
+        <Spin spinning={detailLoading}>
         {detail && (
           <div className="audit-detail">
             <div className="audit-detail-meta">
@@ -196,6 +239,7 @@ export function AuditPage() {
             </section>
           </div>
         )}
+        </Spin>
       </Modal>
     </PageContainer>
   );
